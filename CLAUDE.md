@@ -66,3 +66,11 @@ or deleting tags.
   `curl "http://localhost:8787/__scheduled?cron=0+6,10+*+*+*"`.
 - Local D1 state is keyed by `database_id`; if `wrangler dev` reports "no such table",
   run `npm run db:migrate:local`.
+- **Production data is off-limits for testing.** All test traffic goes to `localhost:8787`
+  (local D1). Never `curl` the `workers.dev` URL with `PUT`/`POST`, never run
+  `wrangler d1 execute`/`migrations apply` with `--remote` or `wrangler dev --remote`
+  unless the user explicitly asks. Include this rule in every subagent brief.
+- Test runs that change local criteria or source toggles must restore them afterwards
+  (re-`PUT` the original values), and the report must say what was changed. The
+  local Manage page is what the user sees at `localhost:8787/#/manage`; leaving
+  test values behind looks like data loss.
