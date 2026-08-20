@@ -3,7 +3,7 @@
 A lightweight Cloudflare Worker that automatically fetches and filters job listings from multiple sources, stores matches in D1, and serves them via a React SPA with a management interface. Run once daily at 11:00 UTC to discover new remote and on-site roles matching your criteria—no server to maintain, no deployment complexity.
 
 **How it works:**
-- **Cron trigger** runs on schedule (`0 11 * * *`) and fetches jobs from enabled sources in parallel.
+- **Cron trigger** runs on schedule (`0 6,10 * * *`, i.e. 06:00 and 10:00 UTC) and fetches jobs from enabled sources in parallel.
 - **Filtering** matches jobs against criteria stored in D1 (keywords, locations, remote OK, max age).
 - **Deduplication** via `INSERT OR IGNORE` on source-prefixed IDs (`adzuna:12345`, `remoteok:67890`).
 - **API** exposes jobs and sources; protected write endpoints require `Authorization: Bearer <ADMIN_TOKEN>`.
@@ -47,7 +47,7 @@ No Docker, no external services needed.
 5. **Trigger the cron locally:**
    ```bash
    npm run cron:local
-   # or: curl "http://localhost:8787/__scheduled?cron=0+11+*+*+*"
+   # or: curl "http://localhost:8787/__scheduled?cron=0+6,10+*+*+*"
    ```
    After the cron completes, reload the jobs page to see new matches.
 

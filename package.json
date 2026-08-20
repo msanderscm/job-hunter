@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.worker.json",
     "db:migrate:local": "wrangler d1 migrations apply job-digest --local",
     "db:migrate:remote": "wrangler d1 migrations apply job-digest --remote",
-    "cron:local": "curl \"http://localhost:8787/__scheduled?cron=0+11+*+*+*\""
+    "cron:local": "curl \"http://localhost:8787/__scheduled?cron=0+6,10+*+*+*\""
   },
   "dependencies": {
     "react": "^19.1.0",

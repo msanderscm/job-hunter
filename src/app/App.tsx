@@ -24,7 +24,7 @@ export function App() {
         {route === "/manage" ? <ManageView /> : <JobsView />}
       </main>
       <footer className="app-footer">
-        <p>Fetches run every morning at 11:00 UTC</p>
+        <p>Fetches run daily at 06:00 and 10:00 UTC</p>
       </footer>
     </div>
   );
