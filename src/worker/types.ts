@@ -1,6 +1,7 @@
 export interface Env {
   DB: D1Database;
   ASSETS: Fetcher;
+  AI: Ai;
   ADMIN_TOKEN?: string;
   ADZUNA_APP_ID?: string;
   ADZUNA_APP_KEY?: string;

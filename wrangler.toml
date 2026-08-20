@@ -18,6 +18,10 @@ database_name = "job-digest"
 database_id = "92724e02-86d0-46d3-8eb2-395efa6e78eb"
 migrations_dir = "migrations"
 
+# Workers AI — used by the Hacker News source to judge "Who is hiring" posts.
+[ai]
+binding = "AI"
+
 [triggers]
 crons = ["0 6,10 * * *"]
 
