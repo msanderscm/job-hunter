@@ -63,6 +63,18 @@ function authHeaders(token: string): HeadersInit {
   };
 }
 
+export interface RunSummary {
+  fetched: number;
+  matched: number;
+  inserted: number;
+  skipped: string[];
+  failed: string[];
+}
+
+export function runDigest(token: string): Promise<RunSummary> {
+  return request<RunSummary>("/api/run", { method: "POST", headers: authHeaders(token) });
+}
+
 export function getJobs(): Promise<{ jobs: Job[] }> {
   return request<{ jobs: Job[] }>("/api/jobs");
 }

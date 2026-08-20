@@ -1,6 +1,7 @@
 import type { Criteria, Env } from "./types";
 import { loadCriteria, loadSources, listRecentJobs, updateCriteria, updateSource, getSource } from "./db";
 import { requireAdmin } from "./auth";
+import { runDigest } from "./cron";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -171,6 +172,16 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
       if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
       const jobs = await listRecentJobs(env.DB);
       return json({ jobs });
+    }
+
+    // Manual trigger of the morning fetch. Admin-only so a public URL can't be
+    // used to burn subrequests; runs synchronously and returns the summary.
+    if (path === "/api/run") {
+      if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+      const authFailure = requireAdmin(request, env);
+      if (authFailure) return authFailure;
+      const summary = await runDigest(env);
+      return json(summary);
     }
 
     if (path === "/api/criteria") {

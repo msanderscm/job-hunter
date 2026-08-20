@@ -94,6 +94,7 @@ Criteria and source changes take effect immediately on the next cron run—no re
 | GET | `/api/criteria` | Open | Fetch current matching criteria. |
 | PUT | `/api/criteria` | Bearer token | Replace criteria. Body: `{ required_keywords: [], excluded_keywords: [], locations: [], remote_ok: bool, max_age_days: 1-30 }`. 400 with a message on bad input. |
 | GET | `/api/sources` | Open | All sources with `enabled`, `config`, `requires_secrets` (names only) and `secrets_present`. |
+| POST | `/api/run` | Bearer token | Run the fetch now (same code path as the cron). Returns `{ fetched, matched, inserted, skipped, failed }`. Also available as the **Fetch now** button on the Manage page. |
 | PUT | `/api/sources/:id` | Bearer token | Update `enabled` and/or `config` of one source. Sources can't be created or deleted via the API. |
 
 ## Deploying to Cloudflare
