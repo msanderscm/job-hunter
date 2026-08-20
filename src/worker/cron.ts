@@ -1,6 +1,7 @@
 import type { Env, NormalizedJob } from "./types";
 import { loadCriteria, loadSources, insertJobs } from "./db";
 import { getFetcher } from "./sources";
+import type { Fetcher } from "./sources";
 import { matchesCriteria } from "./matching";
 
 export interface DigestResult {
@@ -18,7 +19,7 @@ export async function runDigest(env: Env): Promise<DigestResult> {
   const skipped: string[] = [];
   const failed: string[] = [];
 
-  const runnable: Array<{ id: string; run: () => Promise<NormalizedJob[]> }> = [];
+  const runnable: Array<{ id: string; fetcher: Fetcher; run: () => Promise<NormalizedJob[]> }> = [];
 
   for (const source of sources) {
     const missingSecrets = source.requires_secrets.filter((name) => {
@@ -45,7 +46,8 @@ export async function runDigest(env: Env): Promise<DigestResult> {
 
     runnable.push({
       id: source.id,
-      run: () => fetcher({ criteria, config: source.config, secrets }),
+      fetcher,
+      run: () => fetcher({ criteria, config: source.config, secrets, ai: env.AI }),
     });
   }
 
@@ -61,18 +63,20 @@ export async function runDigest(env: Env): Promise<DigestResult> {
   );
 
   let fetched = 0;
-  const allJobs: NormalizedJob[] = [];
+  const matchedJobs: NormalizedJob[] = [];
   settled.forEach((result, i) => {
-    const id = runnable[i].id;
+    const { id, fetcher } = runnable[i];
     if (result.status === "fulfilled") {
-      fetched += result.value.length;
-      allJobs.push(...result.value);
+      const jobs = result.value;
+      fetched += jobs.length;
+      // LLM-based sources (e.g. hackernews) already judge posts against the
+      // criteria themselves; re-running the keyword filter on their output
+      // would be redundant (and could wrongly drop matches phrased loosely).
+      matchedJobs.push(...(fetcher.appliesCriteria ? jobs : jobs.filter((j) => matchesCriteria(j, criteria))));
     } else {
       failed.push(id);
     }
   });
-
-  const matchedJobs = allJobs.filter((job) => matchesCriteria(job, criteria));
   const inserted = await insertJobs(env.DB, matchedJobs);
 
   const summary: DigestResult = {

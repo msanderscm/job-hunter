@@ -56,6 +56,7 @@ export const adzuna: Fetcher = async (ctx) => {
     params.set("what", config.what);
   }
 
+  //console.log('country', country, 'params', params);
   const apiUrl = `https://api.adzuna.com/v1/api/jobs/${encodeURIComponent(country)}/search/1?${params.toString()}`;
 
   const res = await fetch(apiUrl, {

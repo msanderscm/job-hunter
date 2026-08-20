@@ -4,7 +4,7 @@ A lightweight Cloudflare Worker that automatically fetches and filters job listi
 
 **How it works:**
 - **Cron trigger** runs on schedule (`0 6,10 * * *`, i.e. 06:00 and 10:00 UTC) and fetches jobs from enabled sources in parallel.
-- **Filtering** matches jobs against criteria stored in D1 (keywords, locations, remote OK, max age).
+- **Filtering** matches jobs against criteria stored in D1 (keywords, locations, remote OK, max age). Sources that already judge posts themselves (see Hacker News below) are exempt — see `appliesCriteria` in "Adding a new job source".
 - **Deduplication** via `INSERT OR IGNORE` on source-prefixed IDs (`adzuna:12345`, `remoteok:67890`).
 - **API** exposes jobs and sources; protected write endpoints require `Authorization: Bearer <ADMIN_TOKEN>`.
 - **SPA** (React + Vite) provides two hash routes: jobs list (`#/`) and management (`#/manage`).
@@ -80,9 +80,53 @@ Criteria and source changes take effect immediately on the next cron run—no re
 **Managing sources:**
 - Toggle each source on/off to enable or disable it.
 - Edit JSON config:
-  - **RemoteOK:** `{"tags": []}` (optional tag filters).
+  - **RemoteOK:** `{"tags": ["dev"], "location": "US", "max_pages": 2}` — all optional. See below for what each does.
   - **Adzuna:** `{"country": "us", "results_per_page": 50}` ([country codes](https://developer.adzuna.com/docs/overview)).
+  - **Hacker News — Who is hiring?:** `{"model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "batch_size": 20, "max_posts": 60, "max_chars": 2500}` — all optional, shown here at their defaults. See below for what each does.
 - **Missing secrets warning:** appears if Adzuna is enabled but `ADZUNA_APP_ID` or `ADZUNA_APP_KEY` are not set.
+
+### RemoteOK
+
+RemoteOK's public JSON feed (`https://remoteok.com/api`) honors a `tags` filter but
+ignores location entirely — its `location` field is a bare city with the country
+stripped, so a country filter can't be done from JSON. Instead, this source uses the
+same HTML pagination endpoint RemoteOK's own site filter pages use
+(`https://remoteok.com/?action=get_jobs&tags=…&location=…&offset=…`, 50 rows/page,
+newest first), which honors both filters, and parses the job rows out of the returned
+HTML in a single linear pass (no DOM).
+
+Config keys (all optional):
+- `tags` — array of tag strings, comma-joined into `&tags=` (default `[]`, no tag
+  filter). RemoteOK's dev-focused tag is `"dev"`.
+- `location` — a single RemoteOK location code (default: none, no location filter).
+  Valid values: `Worldwide`, a region code (`region_NA`, `region_LA`, `region_EU`,
+  `region_AF`, `region_ME`, `region_AS`, `region_OC`), or an ISO-2 country code (`US`,
+  `CA`, `UK`, `AU`, `DE`, …).
+- `max_pages` — how many 50-row pages to fetch, 1–4 (default 2, i.e. up to 100 newest
+  matching jobs). Pagination stops early once a page returns fewer than 50 rows or its
+  oldest post is past `max_age_days`, so the common case is a single request.
+
+If the HTML endpoint is unreachable or its markup changes such that no rows parse, this
+source logs a warning and falls back to the JSON feed (`tags` filter only — location is
+not applied in that case). Subrequest cost is typically 1–2 fetches per run (one per
+page fetched, plus 1 if the JSON fallback triggers).
+
+### Hacker News — Who is hiring?
+
+Every month the HN account `whoishiring` posts a thread titled "Ask HN: Who is hiring? (Month Year)"; each top-level comment is a free-text job post. This source:
+1. Finds the current thread via the [HN Algolia API](https://hn.algolia.com/api).
+2. Fetches its top-level comments posted within `max_age_days` (from criteria).
+3. Strips HTML and does a cheap pre-filter (drops posts containing an excluded keyword, caps the count at `max_posts`, newest first).
+4. Sends the remainder to **Cloudflare Workers AI** (`env.AI` binding, see `wrangler.toml`) in batches of `batch_size`, asking it to judge each post against the current criteria and extract `company`, `title`, `location`, `remote`, `company_url`.
+5. Returns only posts the model judged a match, already normalized — unlike the other sources, this one does its own criteria matching (see `appliesCriteria` below) rather than relying on the generic keyword filter, since HN posts are free text without structured fields.
+
+Config keys (all optional):
+- `model` — Workers AI model id (default `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; must support `json_schema` response format).
+- `batch_size` — posts per AI call, 1–40 (default 20).
+- `max_posts` — cap on posts considered per run, 1–200 (default 60).
+- `max_chars` — per-post text truncation before sending to the model, 500–8000 (default 2500).
+
+Requires the `[ai]` binding in `wrangler.toml` (already configured — `binding = "AI"`); no secrets needed. With the defaults, a run costs about 2 Algolia requests plus up to 3 Workers AI requests (60 posts ÷ 20/batch). Workers AI is included in the Workers free tier (10,000 neurons/day); a daily run with the defaults stays well within that. In local dev, the `AI` binding calls the real Workers AI service through your `wrangler login` session (no separate API key needed).
 
 **Auth:** The UI prompts for `ADMIN_TOKEN` once per session and stores it in memory only. Reload or 401 response will re-prompt.
 
@@ -162,9 +206,11 @@ gh secret set CLOUDFLARE_ACCOUNT_ID
 
 2. Register in `src/worker/sources/index.ts`.
 
-3. Add migration `migrations/0002_add_<id>.sql` to insert a `sources` row with `requires_secrets` field listing any secret names.
+3. Add migration `migrations/000N_add_<id>.sql` to insert a `sources` row with `requires_secrets` field listing any secret names.
 
 4. Set secrets via `npx wrangler secret put`.
+
+If the fetcher already judges posts against the criteria itself (e.g. an LLM-based source — see `hackernews.ts`), set `<fetcher>.appliesCriteria = true` after the export; `runDigest` (`cron.ts`) then skips the generic keyword/location filter for that source's results instead of re-filtering output the fetcher already decided on.
 
 Sources cannot be created or deleted via the API by design.
 
@@ -185,6 +231,7 @@ src/
       types.ts              # Normalized job shape
       remoteok.ts           # RemoteOK fetcher
       adzuna.ts             # Adzuna fetcher
+      hackernews.ts         # Hacker News "Who is hiring?" fetcher (Workers AI)
   app/
     main.tsx                # React entry, router setup
     App.tsx                 # Layout component
@@ -218,3 +265,4 @@ vite.config.ts              # Build config
 | Adzuna shows "Missing secrets" | Set both `ADZUNA_APP_ID` and `ADZUNA_APP_KEY` via secrets or `.dev.vars`. |
 | Cron ran but no new jobs | Check `wrangler dev` terminal for errors. Criteria may be too strict; clear required keywords to see all matches. |
 | RemoteOK jobs filtered by location | RemoteOK feed is remote-only; enable "Remote OK" toggle or remove location filters. |
+| `hackernews failed: AI binding not configured` | Add the `[ai]` / `binding = "AI"` block to `wrangler.toml` (see the Hacker News section above) and redeploy / restart `wrangler dev`. |
