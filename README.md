@@ -80,10 +80,36 @@ Criteria and source changes take effect immediately on the next cron run—no re
 **Managing sources:**
 - Toggle each source on/off to enable or disable it.
 - Edit JSON config:
-  - **RemoteOK:** `{"tags": []}` (optional tag filters).
+  - **RemoteOK:** `{"tags": ["dev"], "location": "US", "max_pages": 2}` — all optional. See below for what each does.
   - **Adzuna:** `{"country": "us", "results_per_page": 50}` ([country codes](https://developer.adzuna.com/docs/overview)).
   - **Hacker News — Who is hiring?:** `{"model": "@cf/meta/llama-3.3-70b-instruct-fp8-fast", "batch_size": 20, "max_posts": 60, "max_chars": 2500}` — all optional, shown here at their defaults. See below for what each does.
 - **Missing secrets warning:** appears if Adzuna is enabled but `ADZUNA_APP_ID` or `ADZUNA_APP_KEY` are not set.
+
+### RemoteOK
+
+RemoteOK's public JSON feed (`https://remoteok.com/api`) honors a `tags` filter but
+ignores location entirely — its `location` field is a bare city with the country
+stripped, so a country filter can't be done from JSON. Instead, this source uses the
+same HTML pagination endpoint RemoteOK's own site filter pages use
+(`https://remoteok.com/?action=get_jobs&tags=…&location=…&offset=…`, 50 rows/page,
+newest first), which honors both filters, and parses the job rows out of the returned
+HTML in a single linear pass (no DOM).
+
+Config keys (all optional):
+- `tags` — array of tag strings, comma-joined into `&tags=` (default `[]`, no tag
+  filter). RemoteOK's dev-focused tag is `"dev"`.
+- `location` — a single RemoteOK location code (default: none, no location filter).
+  Valid values: `Worldwide`, a region code (`region_NA`, `region_LA`, `region_EU`,
+  `region_AF`, `region_ME`, `region_AS`, `region_OC`), or an ISO-2 country code (`US`,
+  `CA`, `UK`, `AU`, `DE`, …).
+- `max_pages` — how many 50-row pages to fetch, 1–4 (default 2, i.e. up to 100 newest
+  matching jobs). Pagination stops early once a page returns fewer than 50 rows or its
+  oldest post is past `max_age_days`, so the common case is a single request.
+
+If the HTML endpoint is unreachable or its markup changes such that no rows parse, this
+source logs a warning and falls back to the JSON feed (`tags` filter only — location is
+not applied in that case). Subrequest cost is typically 1–2 fetches per run (one per
+page fetched, plus 1 if the JSON fallback triggers).
 
 ### Hacker News — Who is hiring?
 

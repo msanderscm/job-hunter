@@ -5,6 +5,7 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+- RemoteOK source supports `tags` + `location` filters (defaults to dev jobs in the US).
 - Admin-only `POST /api/run` endpoint and a "Fetch now" button on the Manage page to
   trigger the fetch on demand.
 - Cron schedule changed to `0 6,10 * * *` (06:00 and 10:00 UTC).
