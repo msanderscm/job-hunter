@@ -8,6 +8,7 @@ line per significant feature, fix, or behaviour change.
 - Admin-only `POST /api/run` endpoint and a "Fetch now" button on the Manage page to
   trigger the fetch on demand.
 - Cron schedule changed to `0 6,10 * * *` (06:00 and 10:00 UTC).
+- Hacker News "Who is hiring?" source screened with Workers AI.
 
 ## 0.1.0 — 2026-08-20
 
