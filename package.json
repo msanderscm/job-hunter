@@ -7,7 +7,7 @@
     "dev": "vite build && concurrently -k -n vite,wrangler -c blue,yellow \"vite build --watch\" \"wrangler dev --test-scheduled\"",
     "build": "vite build",
     "deploy": "npm run build && wrangler deploy",
-    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.worker.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p src/worker",
     "db:migrate:local": "wrangler d1 migrations apply job-digest --local",
     "db:migrate:remote": "wrangler d1 migrations apply job-digest --remote",
     "cron:local": "curl \"http://localhost:8787/__scheduled?cron=0+6,10+*+*+*\""
