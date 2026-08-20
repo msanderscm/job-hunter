@@ -5,6 +5,8 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+## 0.2.0 — 2026-08-20
+
 - RemoteOK source supports `tags` + `location` filters (defaults to dev jobs in the US).
 - Admin-only `POST /api/run` endpoint and a "Fetch now" button on the Manage page to
   trigger the fetch on demand.
