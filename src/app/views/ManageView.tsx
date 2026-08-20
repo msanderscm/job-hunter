@@ -1,0 +1,33 @@
+import { CriteriaForm } from "../components/CriteriaForm";
+import { SourcesTable } from "../components/SourcesTable";
+import { useAdminToken } from "../hooks/useAdminToken";
+
+export function ManageView() {
+  const adminToken = useAdminToken();
+
+  return (
+    <div className="view">
+      <div className="manage-header">
+        <h1>Manage</h1>
+        <div className="token-indicator">
+          <span>
+            {adminToken.token
+              ? "token set for this session"
+              : "you'll be prompted on first save"}
+          </span>
+          {adminToken.token && (
+            <button
+              type="button"
+              className="btn btn-danger btn-small"
+              onClick={adminToken.clearToken}
+            >
+              Forget token
+            </button>
+          )}
+        </div>
+      </div>
+      <CriteriaForm adminToken={adminToken} />
+      <SourcesTable adminToken={adminToken} />
+    </div>
+  );
+}

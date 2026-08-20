@@ -1,0 +1,25 @@
+name = "job-digest"
+main = "src/worker/index.ts"
+compatibility_date = "2026-08-01"
+
+# Built React app (output of `vite build`). Requests for files that exist here
+# are served directly; /api/* always hits the Worker; everything else that
+# doesn't match a file falls back to index.html (SPA).
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = ["/api/*", "/__scheduled"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "job-digest"
+# Replace with the id printed by `wrangler d1 create job-digest`.
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+[triggers]
+crons = ["0 11 * * *"]
+
+[observability]
+enabled = true

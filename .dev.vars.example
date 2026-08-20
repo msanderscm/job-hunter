@@ -1,0 +1,6 @@
+# Copy to .dev.vars for local development (never commit .dev.vars).
+# In production these are Wrangler secrets: `wrangler secret put <NAME>`.
+ADMIN_TOKEN=change-me-local-admin-token
+# Optional: leave unset to run with RemoteOK only.
+# ADZUNA_APP_ID=
+# ADZUNA_APP_KEY=
