@@ -33,14 +33,19 @@ When the user asks for a release ("cut a release", "release 0.3.0", etc.):
    - Add a fresh empty `## Unreleased` section at the top.
    - Bump `"version"` in `package.json` to match.
    - Commit: `chore(release): <version>`.
-5. **Git flow release:**
+5. **Git flow release** (this machine has nvie git-flow 0.4.1 on macOS: its `-m` flag
+   cannot take a message with spaces — BSD `getopt` aborts — and `--messagefile` doesn't
+   exist, so supply the tag message through a scripted editor instead):
    ```bash
    git flow release start <version>
-   git flow release finish -m "Release <version>" <version>
+   printf '#!/bin/sh\nprintf "Release <version>\\n" > "$1"\n' > /tmp/tag-editor.sh && chmod +x /tmp/tag-editor.sh
+   GIT_MERGE_AUTOEDIT=no GIT_EDITOR=/tmp/tag-editor.sh git flow release finish <version>
    ```
    (`finish` merges the release branch into `main`, tags `main`, back-merges into
-   `develop`, and deletes the release branch. Use the `-m` flag so the tag message
-   doesn't open an editor.)
+   `develop`, and deletes the release branch. `GIT_MERGE_AUTOEDIT=no` keeps the merges
+   non-interactive; the scripted editor writes the tag message.) If `finish` aborts
+   with a `flags:FATAL` getopt error, nothing has been merged or tagged yet — fix the
+   invocation and re-run it.
 6. **Verify the tag:** `git tag --points-at main` must show `<version>`.
 7. **Push:** `git push origin main develop --follow-tags` (this is the one sanctioned
    push to `main`; it deploys to production).
