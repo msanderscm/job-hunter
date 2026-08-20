@@ -72,6 +72,7 @@ export async function runDigest(env: Env): Promise<DigestResult> {
     }
   });
 
+  //console.log('allJobs', allJobs);
   const matchedJobs = allJobs.filter((job) => matchesCriteria(job, criteria));
   const inserted = await insertJobs(env.DB, matchedJobs);
 
