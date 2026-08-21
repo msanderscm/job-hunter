@@ -79,3 +79,25 @@ export interface SourceRow {
   requires_secrets: string[];
   updated_at?: string;
 }
+
+/**
+ * A user as returned by the API (see migrations/0008). Deliberately excludes
+ * password_hash — no route may ever serve it.
+ */
+export interface UserRow {
+  id: number;
+  username: string;
+  first_name: string;
+  created_at: string;
+}
+
+/** Internal shape used only by the login path. `password_hash` NULL = check ADMIN_TOKEN. */
+export interface UserAuthRow extends UserRow {
+  password_hash: string | null;
+}
+
+/**
+ * Who is making a request: a logged-in user (session cookie) or a script
+ * holding the ADMIN_TOKEN bearer secret, which has no user row behind it.
+ */
+export type AuthPrincipal = { kind: "session"; user: UserRow } | { kind: "token" };

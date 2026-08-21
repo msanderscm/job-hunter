@@ -5,6 +5,16 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+- Real login replaces the admin-token prompt. `POST /api/auth/login` (username + password)
+  sets an HttpOnly session cookie (30 days; only its SHA-256 is stored), with
+  `/api/auth/logout` and `/api/auth/me` alongside. New `users` and `sessions` tables
+  (migrations 0008–0009); passwords are stored as salted PBKDF2-SHA256 hashes only. Bootstrap
+  by logging in as `admin` with the `ADMIN_TOKEN` secret (rotating the secret also ends
+  sessions opened with it), then create users on the new Users page (`GET`/`POST /api/users`).
+  The Jobs page stays open; Manage, Users and the Save/Delete actions redirect to the login
+  page when logged out. `Authorization: Bearer <ADMIN_TOKEN>` still works on the API for
+  scripts. Every state-changing route now also rejects cross-site requests (403).
+
 ## 0.5.0 — 2026-08-21
 
 - Triage listings from the Jobs page: each tile now has a footer with **Save** (purple border,

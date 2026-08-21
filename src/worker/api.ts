@@ -1,5 +1,11 @@
-import type { Criteria, Env, JobStatus, ResumeInfo } from "./types";
+import type { Criteria, Env, JobStatus, ResumeInfo, UserRow } from "./types";
 import {
+  createUser,
+  deleteExpiredSessions,
+  deleteSession,
+  getUserForLogin,
+  listUsers,
+  UsernameTakenError,
   loadCriteria,
   loadSources,
   listRecentJobs,
@@ -12,17 +18,35 @@ import {
   saveResume,
   saveResumeSummary,
 } from "./db";
-import { requireAdmin } from "./auth";
+import {
+  authenticate,
+  clearSessionCookie,
+  issueSession,
+  requireAdmin,
+  sameOrigin,
+  sessionIdHashFromRequest,
+  sha256Base64url,
+  timingSafeEqual,
+} from "./auth";
+import {
+  hashPassword,
+  normalizeUsername,
+  validateFirstName,
+  validatePassword,
+  validateUsername,
+  verifyPassword,
+} from "./password";
 import { runDigest } from "./cron";
 import { clearScores, countPendingJobs, scorePendingJobs } from "./scoring";
 import { SUMMARY_MODEL, summarizeResume } from "./resume-summary";
 
-function json(data: unknown, status = 200): Response {
+function json(data: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store",
+      ...headers,
     },
   });
 }
@@ -121,7 +145,7 @@ async function handleJobStatusRoute(request: Request, env: Env, id: string): Pro
     return json({ error: "method not allowed" }, 405);
   }
 
-  const authFailure = requireAdmin(request, env);
+  const authFailure = await requireAdmin(request, env);
   if (authFailure) return authFailure;
 
   let body: unknown;
@@ -158,7 +182,7 @@ async function handleSourcesRoute(request: Request, env: Env, sourceId: string):
     return json({ error: "method not allowed" }, 405);
   }
 
-  const authFailure = requireAdmin(request, env);
+  const authFailure = await requireAdmin(request, env);
   if (authFailure) return authFailure;
 
   let body: unknown;
@@ -244,7 +268,7 @@ async function handleResumeRoute(request: Request, env: Env): Promise<Response> 
     return json({ error: "method not allowed" }, 405);
   }
 
-  const authFailure = requireAdmin(request, env);
+  const authFailure = await requireAdmin(request, env);
   if (authFailure) return authFailure;
 
   let form: FormData;
@@ -305,7 +329,7 @@ async function handleResumeSummaryRoute(request: Request, env: Env): Promise<Res
     return json({ error: "method not allowed" }, 405);
   }
 
-  const authFailure = requireAdmin(request, env);
+  const authFailure = await requireAdmin(request, env);
   if (authFailure) return authFailure;
 
   const row = await loadResumeSummary(env.DB);
@@ -320,9 +344,224 @@ async function handleResumeSummaryRoute(request: Request, env: Env): Promise<Res
   });
 }
 
+// --- Login, sessions and users -------------------------------------------
+//
+// Two ways to authenticate, both handled in src/worker/auth.ts:
+//
+//   * a browser logs in at POST /api/auth/login and gets an HttpOnly session
+//     cookie whose SHA-256 is the sessions-table key (see migrations/0008);
+//   * scripts keep sending `Authorization: Bearer <ADMIN_TOKEN>`, unchanged.
+//
+// The 'admin' row shipped by migration 0008 has a NULL password_hash, meaning
+// "check the password against the ADMIN_TOKEN secret" — that bootstraps the
+// first login without ever putting the secret in the database. Users created
+// through POST /api/users get a real PBKDF2 hash instead.
+
+/**
+ * A hash to verify against when the username doesn't exist, so an unknown user
+ * costs the same wall-clock time as a wrong password (no enumeration by timing).
+ * Built once, lazily, on the first failed lookup.
+ */
+let dummyHash: Promise<string> | null = null;
+
+function dummyPasswordHash(): Promise<string> {
+  if (!dummyHash) dummyHash = hashPassword("dummy");
+  return dummyHash;
+}
+
+/** The login response body — never the whole row, and never password_hash. */
+function publicUser(user: Pick<UserRow, "id" | "username" | "first_name">) {
+  return { id: user.id, username: user.username, first_name: user.first_name };
+}
+
+async function handleLoginRoute(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") {
+    return json({ error: "method not allowed" }, 405);
+  }
+  if (!sameOrigin(request)) {
+    return json({ error: "forbidden" }, 403);
+  }
+
+  let body: unknown;
+  try {
+    body = await readJsonBody(request);
+  } catch (err) {
+    return json({ error: (err as Error).message }, 400);
+  }
+
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return json({ error: "body: must be a JSON object" }, 400);
+  }
+  const b = body as Record<string, unknown>;
+
+  if (typeof b.username !== "string" || typeof b.password !== "string") {
+    return json({ error: "username and password: must be strings" }, 400);
+  }
+
+  // Started before the lookup so a cold isolate's first unknown-user attempt
+  // doesn't cost a visibly different amount of time.
+  const dummy = dummyPasswordHash();
+  const username = normalizeUsername(b.username);
+  const user = await getUserForLogin(env.DB, username);
+
+  let ok = false;
+  /** For bootstrap-admin sessions: hash of the token they were opened with (migrations/0009). */
+  let authRef: string | null = null;
+  if (!user) {
+    // Burn the same work as a real check, then fail.
+    await verifyPassword(b.password, await dummy);
+  } else if (user.password_hash === null) {
+    // The token compare is instant; spend a PBKDF2 anyway so this account
+    // isn't identifiable by response time.
+    await verifyPassword(b.password, await dummy);
+    ok =
+      typeof env.ADMIN_TOKEN === "string" &&
+      env.ADMIN_TOKEN !== "" &&
+      timingSafeEqual(b.password, env.ADMIN_TOKEN);
+    if (ok) authRef = await sha256Base64url(env.ADMIN_TOKEN as string);
+  } else {
+    ok = await verifyPassword(b.password, user.password_hash);
+  }
+
+  if (!ok || !user) {
+    // One message for every failure mode — a wrong username must be
+    // indistinguishable from a wrong password. The submitted username is
+    // deliberately not logged: it is untrusted, unbounded, and is where a
+    // mistyped password ends up.
+    console.warn("[auth] login failed");
+    return json({ error: "invalid username or password" }, 401);
+  }
+
+  // Housekeeping, not correctness: getSessionUser already ignores expired rows.
+  try {
+    await deleteExpiredSessions(env.DB);
+  } catch (err) {
+    console.warn("[auth] expired-session sweep failed", err);
+  }
+
+  const { setCookie } = await issueSession(env.DB, request, user.id, authRef);
+  return json({ user: publicUser(user) }, 200, { "Set-Cookie": setCookie });
+}
+
+/**
+ * Logout deliberately requires no auth: a stale or already-deleted session must
+ * still clear the cookie rather than leaving the browser stuck holding it.
+ */
+async function handleLogoutRoute(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") {
+    return json({ error: "method not allowed" }, 405);
+  }
+  // Not authenticated, but still same-origin only: a cross-site form POST must
+  // not be able to log the user out (the clearing Set-Cookie is the damage).
+  if (!sameOrigin(request)) {
+    return json({ error: "forbidden" }, 403);
+  }
+
+  const idHash = await sessionIdHashFromRequest(request);
+  if (idHash) {
+    await deleteSession(env.DB, idHash);
+  }
+
+  return new Response(null, {
+    status: 204,
+    headers: { "cache-control": "no-store", "Set-Cookie": clearSessionCookie(request) },
+  });
+}
+
+async function handleMeRoute(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "GET") {
+    return json({ error: "method not allowed" }, 405);
+  }
+
+  const principal = await authenticate(request, env);
+  if (!principal) {
+    return json({ error: "unauthorized" }, 401, { "WWW-Authenticate": "Bearer" });
+  }
+
+  if (principal.kind === "session") {
+    return json({ user: publicUser(principal.user) });
+  }
+
+  // A bearer-token caller has no user row; report the bootstrap identity so
+  // scripts still see a principal.
+  return json({ user: { id: 0, username: "admin", first_name: "Admin" } });
+}
+
+async function handleUsersRoute(request: Request, env: Env): Promise<Response> {
+  if (request.method === "GET") {
+    const authFailure = await requireAdmin(request, env);
+    if (authFailure) return authFailure;
+    const users = await listUsers(env.DB);
+    return json({ users });
+  }
+
+  if (request.method !== "POST") {
+    return json({ error: "method not allowed" }, 405);
+  }
+
+  const authFailure = await requireAdmin(request, env);
+  if (authFailure) return authFailure;
+
+  let body: unknown;
+  try {
+    body = await readJsonBody(request);
+  } catch (err) {
+    return json({ error: (err as Error).message }, 400);
+  }
+
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return json({ error: "body: must be a JSON object" }, 400);
+  }
+  const b = body as Record<string, unknown>;
+
+  const invalid =
+    validateUsername(b.username) ?? validatePassword(b.password) ?? validateFirstName(b.first_name);
+  if (invalid) {
+    return json({ error: invalid }, 400);
+  }
+
+  const username = normalizeUsername(b.username as string);
+  if (username === "admin") {
+    // The bootstrap row already owns it (see migrations/0008).
+    return json({ error: "username: already taken" }, 409);
+  }
+
+  const password_hash = await hashPassword(b.password as string);
+
+  try {
+    const user = await createUser(env.DB, {
+      username,
+      first_name: (b.first_name as string).trim(),
+      password_hash,
+    });
+    return json({ user }, 201);
+  } catch (err) {
+    if (err instanceof UsernameTakenError) {
+      return json({ error: "username: already taken" }, 409);
+    }
+    throw err;
+  }
+}
+
 export async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
   try {
     const path = url.pathname;
+
+    if (path === "/api/auth/login") {
+      return handleLoginRoute(request, env);
+    }
+
+    if (path === "/api/auth/logout") {
+      return handleLogoutRoute(request, env);
+    }
+
+    if (path === "/api/auth/me") {
+      return handleMeRoute(request, env);
+    }
+
+    if (path === "/api/users") {
+      return handleUsersRoute(request, env);
+    }
 
     if (path === "/api/jobs") {
       if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
@@ -339,7 +578,7 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     // used to burn subrequests; runs synchronously and returns the summary.
     if (path === "/api/run") {
       if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
-      const authFailure = requireAdmin(request, env);
+      const authFailure = await requireAdmin(request, env);
       if (authFailure) return authFailure;
       const summary = await runDigest(env);
       return json(summary);
@@ -360,7 +599,7 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     // show progress — see POST /api/score.
     if (path === "/api/rescore") {
       if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
-      const authFailure = requireAdmin(request, env);
+      const authFailure = await requireAdmin(request, env);
       if (authFailure) return authFailure;
       const cleared = await clearScores(env.DB);
       const pending = await countPendingJobs(env.DB);
@@ -372,7 +611,7 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
     // also usable standalone to pick up any jobs a previous run left pending.
     if (path === "/api/score") {
       if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
-      const authFailure = requireAdmin(request, env);
+      const authFailure = await requireAdmin(request, env);
       if (authFailure) return authFailure;
 
       const limitParam = url.searchParams.get("limit");
@@ -399,7 +638,7 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
         return json(criteria);
       }
       if (request.method === "PUT") {
-        const authFailure = requireAdmin(request, env);
+        const authFailure = await requireAdmin(request, env);
         if (authFailure) return authFailure;
 
         let body: unknown;

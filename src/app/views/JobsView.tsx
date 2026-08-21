@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ApiError, getJobs, setJobStatus } from "../api";
 import type { Job, JobStatus } from "../api";
 import { JobCard } from "../components/JobCard";
-import type { UseAdminToken } from "../hooks/useAdminToken";
+import { useAuth } from "../auth";
 
 type LoadState = "loading" | "error" | "ready";
 type Tab = "current" | "saved" | "deleted";
@@ -14,11 +14,8 @@ export function jobsForTab(jobs: Job[], tab: Tab): Job[] {
   return jobs.filter((job) => job.status !== "deleted");
 }
 
-interface JobsViewProps {
-  adminToken: UseAdminToken;
-}
-
-export function JobsView({ adminToken }: JobsViewProps) {
+export function JobsView() {
+  const auth = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [state, setState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>("");
@@ -77,7 +74,7 @@ export function JobsView({ adminToken }: JobsViewProps) {
   // tile to another tab (unmounting it), and the card needs to stay put to show
   // an error if the request fails or the token prompt is cancelled.
   async function handleStatusChange(job: Job, status: JobStatus): Promise<void> {
-    const updated = await adminToken.withAuth((token) => setJobStatus(job.id, status, token));
+    const updated = await auth.guard(() => setJobStatus(job.id, status));
     setJobs((prev) => prev.map((j) => (j.id === job.id ? updated : j)));
   }
 

@@ -1,4 +1,13 @@
-import type { Criteria, JobRow, JobStatus, NormalizedJob, ResumeInfo, SourceRow } from "./types";
+import type {
+  Criteria,
+  JobRow,
+  JobStatus,
+  NormalizedJob,
+  ResumeInfo,
+  SourceRow,
+  UserAuthRow,
+  UserRow,
+} from "./types";
 
 function safeJsonParse<T>(text: unknown, fallback: T): T {
   if (typeof text !== "string" || text.trim() === "") return fallback;
@@ -263,4 +272,120 @@ export async function updateSource(db: D1Database, id: string, update: SourceUpd
     .run();
 
   return (result.meta?.changes ?? 0) > 0;
+}
+
+// --- Users and sessions (see migrations/0008) -----------------------------
+
+/** Columns safe to hand back over the API — never password_hash. */
+const USER_ROW_COLUMNS = "id, username, first_name, created_at";
+
+/** Thrown by createUser when the username is already in the table. */
+export class UsernameTakenError extends Error {
+  constructor() {
+    super("username: already taken");
+    this.name = "UsernameTakenError";
+  }
+}
+
+/**
+ * The login-path lookup: includes password_hash, so callers must use it only to
+ * verify a password and must never return the row. `username` is expected to be
+ * already normalized (see normalizeUsername in password.ts).
+ */
+export async function getUserForLogin(db: D1Database, username: string): Promise<UserAuthRow | null> {
+  const row = await db
+    .prepare(`SELECT ${USER_ROW_COLUMNS}, password_hash FROM users WHERE username = ?1`)
+    .bind(username)
+    .first<UserAuthRow>();
+  return row ?? null;
+}
+
+export async function getUserById(db: D1Database, id: number): Promise<UserRow | null> {
+  const row = await db
+    .prepare(`SELECT ${USER_ROW_COLUMNS} FROM users WHERE id = ?1`)
+    .bind(id)
+    .first<UserRow>();
+  return row ?? null;
+}
+
+export async function listUsers(db: D1Database): Promise<UserRow[]> {
+  const { results } = await db
+    .prepare(`SELECT ${USER_ROW_COLUMNS} FROM users ORDER BY username`)
+    .all<UserRow>();
+  return results ?? [];
+}
+
+/**
+ * Creates a user. `username` must already be normalized and `password_hash`
+ * produced by hashPassword(). A UNIQUE collision comes back as
+ * UsernameTakenError so the route can answer 409 instead of 500.
+ */
+export async function createUser(
+  db: D1Database,
+  user: { username: string; first_name: string; password_hash: string }
+): Promise<UserRow> {
+  let id: number;
+  try {
+    const result = await db
+      .prepare("INSERT INTO users (username, first_name, password_hash) VALUES (?1, ?2, ?3)")
+      .bind(user.username, user.first_name, user.password_hash)
+      .run();
+    id = Number(result.meta?.last_row_id);
+  } catch (err) {
+    if (String(err).includes("UNIQUE")) throw new UsernameTakenError();
+    throw err;
+  }
+
+  const row = await getUserById(db, id);
+  if (!row) throw new Error("user row vanished after insert");
+  return row;
+}
+
+/**
+ * Stores a session. `sessionIdHash` is the SHA-256 of the cookie value (the
+ * value itself is never persisted) and `expiresAt` is SQLite datetime text.
+ */
+export async function createSession(
+  db: D1Database,
+  userId: number,
+  sessionIdHash: string,
+  expiresAt: string,
+  authRef: string | null
+): Promise<void> {
+  await db
+    .prepare("INSERT INTO sessions (id, user_id, expires_at, auth_ref) VALUES (?1, ?2, ?3, ?4)")
+    .bind(sessionIdHash, userId, expiresAt, authRef)
+    .run();
+}
+
+/**
+ * The user behind a live (non-expired) session, or null. `authRef` is the
+ * hash of the ADMIN_TOKEN a bootstrap-admin session was opened with (see
+ * migrations/0009); null for password-backed users.
+ */
+export async function getSessionUser(
+  db: D1Database,
+  sessionIdHash: string
+): Promise<{ user: UserRow; authRef: string | null } | null> {
+  const row = await db
+    .prepare(
+      `SELECT u.id, u.username, u.first_name, u.created_at, s.auth_ref
+       FROM sessions s JOIN users u ON u.id = s.user_id
+       WHERE s.id = ?1 AND s.expires_at > datetime('now')`
+    )
+    .bind(sessionIdHash)
+    .first<UserRow & { auth_ref: string | null }>();
+  if (!row) return null;
+  const { auth_ref, ...user } = row;
+  return { user, authRef: auth_ref };
+}
+
+export async function deleteSession(db: D1Database, sessionIdHash: string): Promise<void> {
+  await db.prepare("DELETE FROM sessions WHERE id = ?1").bind(sessionIdHash).run();
+}
+
+/** Housekeeping sweep, run on login so the table can't grow without bound. */
+export async function deleteExpiredSessions(db: D1Database): Promise<number> {
+  const result = await db.prepare("DELETE FROM sessions WHERE expires_at <= datetime('now')").run();
+  return result.meta?.changes ?? 0;
 }

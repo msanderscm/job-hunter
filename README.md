@@ -7,8 +7,8 @@ A lightweight Cloudflare Worker that automatically fetches and filters job listi
 - **Filtering** matches jobs against criteria stored in D1 (keywords, locations, remote OK, max age). Sources that already judge posts themselves (see Hacker News below) are exempt — see `appliesCriteria` in "Adding a new job source".
 - **Deduplication** via `INSERT OR IGNORE` on source-prefixed IDs (`adzuna:12345`, `remoteok:67890`).
 - **Match scoring** rates every newly imported job 1–5 against your uploaded resume with Workers AI, so the jobs list leads with the roles that actually fit (see "Resume & match scoring").
-- **API** exposes jobs and sources; protected write endpoints require `Authorization: Bearer <ADMIN_TOKEN>`.
-- **SPA** (React + Vite) provides two hash routes: jobs list (`#/`) and management (`#/manage`).
+- **API** exposes jobs and sources; protected write endpoints require a login session (cookie) or, for scripts, `Authorization: Bearer <ADMIN_TOKEN>`.
+- **SPA** (React + Vite) with hash routes: jobs list (`#/`, open), management (`#/manage`), users (`#/users`) and login (`#/login`).
 
 ## Prerequisites
 
@@ -74,7 +74,29 @@ No Docker, no external services needed.
 
 ## Using the management page
 
-Open `http://localhost:8787/#/manage`. Reading is open; the first save prompts for your `ADMIN_TOKEN`.
+Open `http://localhost:8787/#/manage`. The Manage and Users pages require a login; the Jobs
+page is open to read, and Save / Delete redirect to the login page when you're logged out.
+
+## Logging in
+
+- **Bootstrap:** log in as `admin` with the `ADMIN_TOKEN` secret as the password (locally, the
+  value in `.dev.vars`). This works because the `users` table ships with an `admin` row whose
+  `password_hash` is `NULL`, meaning "verify against the secret" — the secret is never copied
+  into the database, so rotating it rotates the admin password and ends any session that was
+  opened with the old value.
+- **Create your own user** on the Users page (`#/users`): username (3–32 chars, `a-z 0-9 . _ -`,
+  stored lowercase), password (10–128 chars) and first name. Only a PBKDF2-SHA256 hash of the
+  password is stored (50,000 iterations — sized to the Workers Free 10 ms CPU cap — per-user
+  random salt, format
+  `pbkdf2-sha256$<iterations>$<salt>$<hash>`).
+- **Sessions** are a 32-byte random cookie (`session`; `HttpOnly`, `SameSite=Lax`, `Secure` on
+  https) that lasts 30 days; the database stores only its SHA-256. **Log out** deletes the
+  session server-side.
+- Every state-changing route rejects requests whose `Origin` / `Sec-Fetch-Site` headers say
+  they came from another site (403), on top of the `SameSite=Lax` cookie.
+- Not yet: per-IP login throttling (only the hash cost slows a brute force), roles (every
+  logged-in user can create users), change-password and delete-user — do the latter two with
+  `wrangler d1 execute` if needed.
 
 **Setting criteria:**
 - **Required keywords:** job must match at least one (e.g., "Python", "React").
@@ -89,7 +111,7 @@ Criteria and source changes take effect immediately on the next cron run—no re
 tiles get a purple border and stay listed (they never age out of the 7-day window); deleted
 ones leave the **Current** tab but stay in the database so the next fetch won't re-list them.
 The **Saved** and **Deleted** tabs show each set, with **Unsave** / **Undelete** to reverse.
-These actions prompt for the `ADMIN_TOKEN` the first time in a session.
+These actions require a login; when logged out they send you to the login page.
 
 **Managing sources:**
 - Toggle each source on/off to enable or disable it.
@@ -217,24 +239,29 @@ your `wrangler login` session.
 Jobs already stored before their source started capturing descriptions are scored from
 title/company/location alone (`INSERT OR IGNORE` never backfills an existing row).
 
-**Auth:** The UI prompts for `ADMIN_TOKEN` once per session and stores it in memory only. Reload or 401 response will re-prompt.
+**Auth:** "Session" below means the login cookie (see "Logging in"); every session-protected route also accepts `Authorization: Bearer <ADMIN_TOKEN>` so curl/scripts keep working. Both answer 401 when missing or invalid.
 
 ## API reference
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
+| POST | `/api/auth/login` | Open (same-origin) | Body `{ username, password }`. Sets the session cookie and returns `{ user: { id, username, first_name } }`; 401 `invalid username or password` for every failure (no username enumeration). |
+| POST | `/api/auth/logout` | Open | Deletes the current session and clears the cookie. Always 204. |
+| GET | `/api/auth/me` | Session / Bearer | `{ user }` for the current login, or 401. |
+| GET | `/api/users` | Session / Bearer | `{ users: [{ id, username, first_name, created_at }] }` — hashes are never returned. |
+| POST | `/api/users` | Session / Bearer (same-origin) | Create a user. Body `{ username, password, first_name }`. 201 `{ user }`; 400 with a `field: reason` message; 409 if the username is taken (including `admin`). |
 | GET | `/api/jobs` | Open | Jobs first seen in the last 7 days (plus any with `status: "saved"`, which never age out), newest first. Each job carries `status` (`new` \| `saved` \| `deleted`) and `status_changed_at`. |
-| PATCH | `/api/jobs/:id` | Bearer token | Set a job's triage status. Body: `{ status: "new" \| "saved" \| "deleted" }`. Returns the updated job. 400 on an unknown status, 404 on an unknown id. Deleted jobs stay in the DB so the importer won't re-list them; the Jobs page's Save / Delete / Undelete buttons call this. |
+| PATCH | `/api/jobs/:id` | Session / Bearer | Set a job's triage status. Body: `{ status: "new" \| "saved" \| "deleted" }`. Returns the updated job. 400 on an unknown status, 404 on an unknown id. Deleted jobs stay in the DB so the importer won't re-list them; the Jobs page's Save / Delete / Undelete buttons call this. |
 | GET | `/api/criteria` | Open | Fetch current matching criteria. |
-| PUT | `/api/criteria` | Bearer token | Replace criteria. Body: `{ required_keywords: [], excluded_keywords: [], locations: [], remote_ok: bool, max_age_days: 1-30 }`. 400 with a message on bad input. |
+| PUT | `/api/criteria` | Session / Bearer | Replace criteria. Body: `{ required_keywords: [], excluded_keywords: [], locations: [], remote_ok: bool, max_age_days: 1-30 }`. 400 with a message on bad input. |
 | GET | `/api/sources` | Open | All sources with `enabled`, `config`, `requires_secrets` (names only) and `secrets_present`. |
-| POST | `/api/run` | Bearer token | Run the fetch now (same code path as the cron). Returns `{ fetched, matched, inserted, scored, skipped, failed }` (`scored` = jobs rated against the resume this run). Also available as the **Fetch now** button on the Manage page. |
+| POST | `/api/run` | Session / Bearer | Run the fetch now (same code path as the cron). Returns `{ fetched, matched, inserted, scored, skipped, failed }` (`scored` = jobs rated against the resume this run). Also available as the **Fetch now** button on the Manage page. |
 | GET | `/api/resume` | Open | Stored resume metadata: `{ resume: { filename, uploaded_at, chars } \| null }`. The extracted text is never returned. |
-| GET | `/api/resume/summary` | Bearer token | The condensed profile summary: `{ summary, summary_model, summarized_at }` (`summary` is `null` if none has been built yet). 404 if no resume is uploaded. The raw resume text is still never served anywhere. |
-| PUT | `/api/resume` | Bearer token | Upload a resume. Body: `multipart/form-data` with a `file` field holding a PDF (≤ 5 MB). Replaces any previous resume. 400 if the file isn't a PDF, is too large, or has no extractable text. Does **not** rescore existing jobs — use `/api/rescore`. |
-| POST | `/api/rescore` | Bearer token | Clear all ratings in the 7-day window (do this after uploading a new resume). Returns `{ cleared, pending }`. Doesn't score anything itself — follow with `/api/score`. |
-| POST | `/api/score?limit=N` | Bearer token | Rate the next `N` (1–40, default 8) unrated jobs. Returns `{ scored, pending }`. 409 if no resume is uploaded. The Manage page calls this in a loop after `/api/rescore` to show live progress. |
-| PUT | `/api/sources/:id` | Bearer token | Update `enabled` and/or `config` of one source. Sources can't be created or deleted via the API. |
+| GET | `/api/resume/summary` | Session / Bearer | The condensed profile summary: `{ summary, summary_model, summarized_at }` (`summary` is `null` if none has been built yet). 404 if no resume is uploaded. The raw resume text is still never served anywhere. |
+| PUT | `/api/resume` | Session / Bearer | Upload a resume. Body: `multipart/form-data` with a `file` field holding a PDF (≤ 5 MB). Replaces any previous resume. 400 if the file isn't a PDF, is too large, or has no extractable text. Does **not** rescore existing jobs — use `/api/rescore`. |
+| POST | `/api/rescore` | Session / Bearer | Clear all ratings in the 7-day window (do this after uploading a new resume). Returns `{ cleared, pending }`. Doesn't score anything itself — follow with `/api/score`. |
+| POST | `/api/score?limit=N` | Session / Bearer | Rate the next `N` (1–40, default 8) unrated jobs. Returns `{ scored, pending }`. 409 if no resume is uploaded. The Manage page calls this in a loop after `/api/rescore` to show live progress. |
+| PUT | `/api/sources/:id` | Session / Bearer | Update `enabled` and/or `config` of one source. Sources can't be created or deleted via the API. |
 
 ## Deploying to Cloudflare
 
@@ -316,7 +343,8 @@ src/
   worker/
     index.ts                # Entry point, request routing
     api.ts                  # Endpoint handlers
-    auth.ts                 # Bearer token validation
+    auth.ts                 # Session cookies + Bearer token validation
+    password.ts             # PBKDF2 hashing and credential validators
     cron.ts                 # Scheduled job fetch and insert
     db.ts                   # D1 query helpers
     matching.ts             # Keyword/location filter logic
