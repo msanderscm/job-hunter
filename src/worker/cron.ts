@@ -11,6 +11,8 @@ export interface DigestResult {
   inserted: number;
   /** Jobs rated against the resume during this run (0 when no resume is uploaded). */
   scored: number;
+  /** How many of `scored` reused a near-identical listing's rating instead of costing an AI call. */
+  deduped: number;
   skipped: string[];
   failed: string[];
 }
@@ -86,8 +88,9 @@ export async function runDigest(env: Env): Promise<DigestResult> {
   // A scoring failure must never fail the digest — the jobs are already
   // stored, and unscored ones are retried on the next run.
   let scored = 0;
+  let deduped = 0;
   try {
-    ({ scored } = await scorePendingJobs(env, { limit: 80 }));
+    ({ scored, deduped } = await scorePendingJobs(env, { limit: 80 }));
   } catch (err) {
     console.error("[digest] scoring failed", err);
   }
@@ -97,12 +100,13 @@ export async function runDigest(env: Env): Promise<DigestResult> {
     matched: matchedJobs.length,
     inserted,
     scored,
+    deduped,
     skipped,
     failed,
   };
 
   console.log(
-    `[digest] fetched=${summary.fetched} matched=${summary.matched} inserted=${summary.inserted} scored=${summary.scored} skipped=[${summary.skipped.join(",")}] failed=[${summary.failed.join(",")}]`
+    `[digest] fetched=${summary.fetched} matched=${summary.matched} inserted=${summary.inserted} scored=${summary.scored} deduped=${summary.deduped} skipped=[${summary.skipped.join(",")}] failed=[${summary.failed.join(",")}]`
   );
 
   return summary;

@@ -75,6 +75,13 @@ or deleting tags.
   (local D1). Never `curl` the `workers.dev` URL with `PUT`/`POST`, never run
   `wrangler d1 execute`/`migrations apply` with `--remote` or `wrangler dev --remote`
   unless the user explicitly asks. Include this rule in every subagent brief.
+- **Local `wrangler dev` still bills Workers AI.** Only D1 is local; the `AI` binding
+  always calls the real service against the user's daily neuron allowance. Do not
+  exercise anything that reaches `env.AI` — `POST /api/score`, `POST /api/rescore`
+  followed by scoring, `PUT /api/resume`, the `__scheduled` cron endpoint, or "Fetch
+  now" — without the user's explicit go-ahead for that specific run. Unit tests
+  (`npm test`) must stay free of AI calls: test pure helpers only, never anything that
+  takes `env`. Include this rule in every subagent brief.
 - Test runs that change local criteria or source toggles must restore them afterwards
   (re-`PUT` the original values), and the report must say what was changed. The
   local Manage page is what the user sees at `localhost:8787/#/manage`; leaving

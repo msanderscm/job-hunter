@@ -5,6 +5,24 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+## 0.4.0 — 2026-08-21
+
+- Cheaper AI scoring: the resume is condensed once per upload into a compact structured
+  profile (~2.5k chars) that the scorer sends with every batch, instead of re-sending 12k
+  characters of raw resume with each one. `GET /api/resume` reports `summary_chars`; the
+  summary itself, like the resume text, is never served.
+- Scoring batches went from 8 to 16 jobs per AI call (and `POST /api/score` now defaults to
+  `limit=16`), halving the number of calls for the same set of jobs.
+- Re-posted listings no longer cost a second AI rating: every pending job is embedded
+  (`@cf/baai/bge-base-en-v1.5`) and one that is near-identical (cosine >= 0.95) to a job
+  from the same company already rated against the current resume copies that rating.
+  `/api/jobs` exposes `duplicate_of`, `/api/score` and the `[digest]` log line report
+  `deduped`, and the jobs list flags copied ratings in the score badge's tooltip.
+- Migration 0006 adds `resume.summary`/`summary_model`/`summarized_at` and
+  `jobs.embedding`/`embedding_model`/`duplicate_of`.
+- Unit tests: `npm test` (vitest) covers the embedding/dedupe helpers; the tests make no
+  Workers AI calls.
+
 ## 0.3.0 — 2026-08-21
 
 - Resume upload: `PUT /api/resume` takes a PDF, extracts its text with Workers AI

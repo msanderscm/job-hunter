@@ -8,10 +8,12 @@ import {
   getSource,
   getResumeInfo,
   saveResume,
+  saveResumeSummary,
 } from "./db";
 import { requireAdmin } from "./auth";
 import { runDigest } from "./cron";
 import { clearScores, countPendingJobs, scorePendingJobs } from "./scoring";
+import { SUMMARY_MODEL, summarizeResume } from "./resume-summary";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -229,7 +231,17 @@ async function handleResumeRoute(request: Request, env: Env): Promise<Response> 
     return json({ error: "file: no text could be extracted (is the PDF a scanned image?)" }, 400);
   }
 
-  await saveResume(env.DB, file.name, text.slice(0, RESUME_MAX_CHARS));
+  const stored = text.slice(0, RESUME_MAX_CHARS);
+  await saveResume(env.DB, file.name, stored);
+
+  // Condense the resume into the profile the scorer sends with every batch
+  // (see resume-summary.ts). Doing it here means the first scoring run after
+  // an upload doesn't pay for it — but a failure must not fail the upload:
+  // scorePendingJobs retries, and falls back to the raw text if need be.
+  const summary = await summarizeResume(env, stored);
+  if (summary) {
+    await saveResumeSummary(env.DB, summary, SUMMARY_MODEL);
+  }
 
   // Existing scores are left alone; POST /api/rescore re-evaluates on demand.
   const resume = (await getResumeInfo(env.DB)) as ResumeInfo;
@@ -283,7 +295,7 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
       if (authFailure) return authFailure;
 
       const limitParam = url.searchParams.get("limit");
-      let limit = 8;
+      let limit = 16;
       if (limitParam !== null) {
         limit = Number(limitParam);
         if (!Number.isInteger(limit) || limit < 1 || limit > 40) {
@@ -296,8 +308,8 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
         return json({ error: "no resume uploaded" }, 409);
       }
 
-      const { scored, pending } = await scorePendingJobs(env, { limit });
-      return json({ scored, pending });
+      const { scored, deduped, pending } = await scorePendingJobs(env, { limit });
+      return json({ scored, deduped, pending });
     }
 
     if (path === "/api/criteria") {

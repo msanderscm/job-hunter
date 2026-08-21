@@ -143,23 +143,38 @@ imports is rated against it.
 
 1. The uploaded PDF (≤ 5 MB) is converted to text by **Workers AI**'s document
    conversion (`env.AI.toMarkdown`) — one call per upload. The text is stored in the
-   single-row `resume` table, capped at 50,000 characters. It is never logged and never
-   returned by the API: `GET /api/resume` gives back only `filename`, `uploaded_at` and
-   `chars`.
+   single-row `resume` table, capped at 50,000 characters. The same upload then condenses
+   the text once into a short structured **profile** (`resume.summary`, migration 0006:
+   title, years of experience, seniority, skills, tools, roles, quantified achievements —
+   ~2,500 characters) with `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; that profile is
+   what the scorer sends with every batch instead of 12,000 characters of raw resume. If
+   the summary step fails, the next scoring run rebuilds it (and falls back to the raw
+   text until then). Neither the text nor the profile is ever logged or returned by the
+   API: `GET /api/resume` gives back only `filename`, `uploaded_at`, `chars` and
+   `summary_chars`.
 2. After each fetch (cron or **Fetch now**), `scorePendingJobs` picks up every job from
-   the last 7 days that has no score yet, in batches of 8, and asks
-   `@cf/meta/llama-3.3-70b-instruct-fp8-fast` to rate each one 1–5 with a one-line
-   reason. The prompt carries the first 12,000 characters of the resume plus each job's
-   title, company, location, source and stored description (2,500 characters max).
-3. Scores land in `jobs.match_score` / `match_reason` / `scored_at` and are returned by
+   the last 7 days that has no score yet. Each pending job is first embedded once with
+   `@cf/baai/bge-base-en-v1.5` (`jobs.embedding`, 768 floats); a job whose vector is
+   near-identical (cosine ≥ 0.95) to a same-company job already rated against the
+   *current* resume copies that rating instead of costing an AI call, recording the
+   source in `jobs.duplicate_of`. Listings with a placeholder employer ("Unknown") are
+   never deduplicated. The rest go to `@cf/meta/llama-3.3-70b-instruct-fp8-fast` in
+   batches of 16 to be rated 1–5 with a one-line reason; the prompt carries the resume
+   profile plus each job's title, company, location, source and stored description
+   (2,500 characters max). Dedupe is best-effort: if embedding fails, every job simply
+   goes to the LLM.
+3. Scores land in `jobs.match_score` / `match_reason` / `scored_at` (and
+   `duplicate_of` for copied ratings — the tile's tooltip says so) and are returned by
    `/api/jobs`. A job the model failed to rate stays `NULL` and is retried on the next
    run — a scoring failure never fails the digest.
 4. Changing your resume doesn't rescore anything by itself. The **Re-evaluate all
    matches** button drives this in two steps so the UI can show live progress:
    `POST /api/rescore` clears the scores in the 7-day window and returns how many jobs
-   are now pending, then the Manage page calls `POST /api/score?limit=8` in a loop
+   are now pending, then the Manage page calls `POST /api/score?limit=16` in a loop
    (one call per batch) until nothing is left pending, updating the button's label —
-   `Reevaluating x of y` — after each batch.
+   `Reevaluating x of y` — after each batch. Rescoring clears `duplicate_of` but keeps
+   the stored embeddings (they describe the job text, not the resume), so duplicates
+   are re-detected without being re-embedded.
 
 The 1–5 scale is what the jobs list colours each tile's border with:
 
@@ -180,11 +195,12 @@ on-site component), and no star means on-site or unclassified (`unknown`). `work
 is included on `/api/jobs` alongside the score fields.
 
 Cost: like the Hacker News source, this uses the `[ai]` binding, no secrets. A run that
-scores 80 jobs is 10 Workers AI requests (80 ÷ 8 per batch), plus 1 conversion request
-per resume upload; Workers AI is included in the Workers free tier (10,000 neurons/day)
-and two daily runs stay well inside it. A full re-evaluate is the expensive one (up to
-~15 `/api/score` requests for a full 7-day window), which is why it's a separate,
-explicit action. In local dev the `AI` binding calls the real Workers AI service through
+scores 80 jobs is at most 5 LLM requests (80 ÷ 16 per batch — fewer when re-posts are
+deduplicated) plus 1–2 cheap embedding requests (50 texts per call), and each resume
+upload costs 1 conversion request plus 1 summary request; Workers AI is included in the
+Workers free tier (10,000 neurons/day) and two daily runs stay well inside it. A full
+re-evaluate is the expensive one (up to ~8 `/api/score` requests for a full 7-day
+window), which is why it's a separate, explicit action. In local dev the `AI` binding calls the real Workers AI service through
 your `wrangler login` session.
 
 Jobs already stored before their source started capturing descriptions are scored from
@@ -293,6 +309,8 @@ src/
     matching.ts             # Keyword/location filter logic
     util.ts                 # Shared utilities
     scoring.ts              # Resume-vs-job match scoring (Workers AI)
+    resume-summary.ts       # Condenses the resume into the profile the scorer sends
+    dedupe.ts               # Job embeddings + near-duplicate detection (copies ratings)
     sources/
       index.ts              # Source registry
       types.ts              # Normalized job shape
@@ -311,6 +329,8 @@ src/
 migrations/
   0001_init.sql             # Tables: jobs, criteria, sources
   0004_resume_and_match_scores.sql  # jobs.description/match_score/match_reason/scored_at + resume table
+  0005_job_work_mode.sql    # jobs.work_mode
+  0006_resume_summary_and_job_embeddings.sql  # resume.summary + jobs.embedding/duplicate_of
 .github/workflows/
   deploy.yml                # Automated deployment
 wrangler.toml               # Worker config
