@@ -1,9 +1,11 @@
 import { useHashRoute } from "./hooks/useHashRoute";
+import { useAdminToken } from "./hooks/useAdminToken";
 import { JobsView } from "./views/JobsView";
 import { ManageView } from "./views/ManageView";
 
 export function App() {
   const route = useHashRoute();
+  const adminToken = useAdminToken();
 
   return (
     <div className="app-shell">
@@ -21,10 +23,14 @@ export function App() {
         </div>
       </header>
       <main className="app-main">
-        {route === "/manage" ? <ManageView /> : <JobsView />}
+        {route === "/manage" ? (
+          <ManageView adminToken={adminToken} />
+        ) : (
+          <JobsView adminToken={adminToken} />
+        )}
       </main>
       <footer className="app-footer">
-        <p>Fetches run daily at 06:00 and 10:00 UTC</p>
+        <p>Fetches run daily at 11:00 and 18:00 UTC</p>
       </footer>
     </div>
   );

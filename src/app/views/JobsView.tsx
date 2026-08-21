@@ -1,16 +1,30 @@
 import { useEffect, useMemo, useState } from "react";
-import { ApiError, getJobs } from "../api";
-import type { Job } from "../api";
+import { ApiError, getJobs, setJobStatus } from "../api";
+import type { Job, JobStatus } from "../api";
 import { JobCard } from "../components/JobCard";
+import type { UseAdminToken } from "../hooks/useAdminToken";
 
 type LoadState = "loading" | "error" | "ready";
+type Tab = "current" | "saved" | "deleted";
 
-export function JobsView() {
+/** Splits the full job list into the tab it belongs on. */
+export function jobsForTab(jobs: Job[], tab: Tab): Job[] {
+  if (tab === "saved") return jobs.filter((job) => job.status === "saved");
+  if (tab === "deleted") return jobs.filter((job) => job.status === "deleted");
+  return jobs.filter((job) => job.status !== "deleted");
+}
+
+interface JobsViewProps {
+  adminToken: UseAdminToken;
+}
+
+export function JobsView({ adminToken }: JobsViewProps) {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [state, setState] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>("");
   const [filterText, setFilterText] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
+  const [tab, setTab] = useState<Tab>("current");
 
   function load() {
     setState("loading");
@@ -35,9 +49,20 @@ export function JobsView() {
     return Array.from(set).sort();
   }, [jobs]);
 
+  const currentTabJobs = useMemo(() => jobsForTab(jobs, tab), [jobs, tab]);
+
+  const tabCounts = useMemo(
+    () => ({
+      current: jobsForTab(jobs, "current").length,
+      saved: jobsForTab(jobs, "saved").length,
+      deleted: jobsForTab(jobs, "deleted").length,
+    }),
+    [jobs]
+  );
+
   const filteredJobs = useMemo(() => {
     const needle = filterText.trim().toLowerCase();
-    return jobs.filter((job) => {
+    return currentTabJobs.filter((job) => {
       if (sourceFilter && job.source !== sourceFilter) return false;
       if (!needle) return true;
       return (
@@ -46,7 +71,15 @@ export function JobsView() {
         (job.location ?? "").toLowerCase().includes(needle)
       );
     });
-  }, [jobs, filterText, sourceFilter]);
+  }, [currentTabJobs, filterText, sourceFilter]);
+
+  // Applied on success rather than optimistically: a status change can move the
+  // tile to another tab (unmounting it), and the card needs to stay put to show
+  // an error if the request fails or the token prompt is cancelled.
+  async function handleStatusChange(job: Job, status: JobStatus): Promise<void> {
+    const updated = await adminToken.withAuth((token) => setJobStatus(job.id, status, token));
+    setJobs((prev) => prev.map((j) => (j.id === job.id ? updated : j)));
+  }
 
   if (state === "loading") {
     return (
@@ -87,8 +120,47 @@ export function JobsView() {
     );
   }
 
+  const tabEmptyMessage =
+    tab === "current"
+      ? "Nothing here — everything has been saved or deleted."
+      : tab === "saved"
+        ? "No saved jobs yet. Use the ✓ on a tile to save one."
+        : "Nothing deleted.";
+
   return (
     <div className="view">
+      <div className="tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "current"}
+          className={"tab" + (tab === "current" ? " active" : "")}
+          onClick={() => setTab("current")}
+        >
+          Current
+          <span className="tab-count">{tabCounts.current}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "saved"}
+          className={"tab" + (tab === "saved" ? " active" : "")}
+          onClick={() => setTab("saved")}
+        >
+          Saved
+          <span className="tab-count">{tabCounts.saved}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "deleted"}
+          className={"tab" + (tab === "deleted" ? " active" : "")}
+          onClick={() => setTab("deleted")}
+        >
+          Deleted
+          <span className="tab-count">{tabCounts.deleted}</span>
+        </button>
+      </div>
       <div className="controls-row">
         <input
           type="search"
@@ -111,17 +183,21 @@ export function JobsView() {
           ))}
         </select>
         <span className="job-count">
-          {filteredJobs.length} of {jobs.length} jobs
+          {filteredJobs.length} of {currentTabJobs.length} jobs
         </span>
       </div>
-      {filteredJobs.length === 0 ? (
+      {currentTabJobs.length === 0 ? (
+        <div className="empty-state">
+          <p>{tabEmptyMessage}</p>
+        </div>
+      ) : filteredJobs.length === 0 ? (
         <div className="empty-state">
           <p>No jobs match your filters.</p>
         </div>
       ) : (
         <div className="job-grid">
           {filteredJobs.map((job) => (
-            <JobCard job={job} key={job.id} />
+            <JobCard job={job} key={job.id} onStatusChange={handleStatusChange} />
           ))}
         </div>
       )}

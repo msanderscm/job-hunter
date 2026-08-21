@@ -2,11 +2,13 @@ import { CriteriaForm } from "../components/CriteriaForm";
 import { SourcesTable } from "../components/SourcesTable";
 import { RunNow } from "../components/RunNow";
 import { ResumeCard } from "../components/ResumeCard";
-import { useAdminToken } from "../hooks/useAdminToken";
+import type { UseAdminToken } from "../hooks/useAdminToken";
 
-export function ManageView() {
-  const adminToken = useAdminToken();
+interface ManageViewProps {
+  adminToken: UseAdminToken;
+}
 
+export function ManageView({ adminToken }: ManageViewProps) {
   return (
     <div className="view">
       <div className="manage-header">

@@ -1,3 +1,5 @@
+export type JobStatus = "new" | "saved" | "deleted";
+
 export interface Job {
   id: string;
   title: string;
@@ -13,6 +15,8 @@ export interface Job {
   scored_at: string | null;
   work_mode: "remote" | "hybrid" | "onsite" | "unknown" | null;
   duplicate_of: string | null;
+  status: JobStatus;
+  status_changed_at: string | null;
 }
 
 export interface Criteria {
@@ -90,6 +94,14 @@ export function runDigest(token: string): Promise<RunSummary> {
 
 export function getJobs(): Promise<{ jobs: Job[] }> {
   return request<{ jobs: Job[] }>("/api/jobs");
+}
+
+export function setJobStatus(id: string, status: JobStatus, token: string): Promise<Job> {
+  return request<Job>(`/api/jobs/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: authHeaders(token),
+    body: JSON.stringify({ status }),
+  });
 }
 
 export function getCriteria(): Promise<Criteria> {

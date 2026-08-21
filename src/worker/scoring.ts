@@ -174,7 +174,8 @@ function normalizeWorkMode(value: unknown): "remote" | "hybrid" | "onsite" | "un
 export async function countPendingJobs(db: D1Database): Promise<number> {
   const row = await db
     .prepare(
-      `SELECT COUNT(*) AS n FROM jobs WHERE match_score IS NULL AND first_seen_at >= datetime('now', ?1)`
+      // status != 'deleted': a user-deleted job stays unscored forever rather than burning an AI call.
+      `SELECT COUNT(*) AS n FROM jobs WHERE match_score IS NULL AND status != 'deleted' AND first_seen_at >= datetime('now', ?1)`
     )
     .bind(WINDOW)
     .first<{ n: number }>();
@@ -294,9 +295,10 @@ export async function scorePendingJobs(env: Env, opts: { limit: number }): Promi
   }
 
   const { results } = await env.DB.prepare(
+    // status != 'deleted': don't spend AI calls scoring a job the user already deleted.
     `SELECT id, title, company, location, source, description, embedding, embedding_model
        FROM jobs
-      WHERE match_score IS NULL AND first_seen_at >= datetime('now', ?1)
+      WHERE match_score IS NULL AND status != 'deleted' AND first_seen_at >= datetime('now', ?1)
       ORDER BY first_seen_at DESC
       LIMIT ?2`
   )
