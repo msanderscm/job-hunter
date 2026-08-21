@@ -53,6 +53,34 @@ export function companyFromListingUrl(url: string): string {
   }
 }
 
+/**
+ * Normalizes a Tavily result URL so http/https and "/apply" sub-page variants
+ * of the same posting collapse to one id: forces https, drops query/hash,
+ * lowercases the host, and removes a trailing "/apply" path segment. Returns
+ * the input unchanged if it fails to parse as a URL.
+ */
+export function normalizeListingUrl(url: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return url;
+  }
+
+  parsed.protocol = "https:";
+  parsed.search = "";
+  parsed.hash = "";
+  parsed.hostname = parsed.hostname.toLowerCase();
+
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  if (segments.length > 0 && segments[segments.length - 1].toLowerCase() === "apply") {
+    segments.pop();
+  }
+  parsed.pathname = segments.length > 0 ? `/${segments.join("/")}` : "/";
+
+  return parsed.href;
+}
+
 export const tavily: Fetcher = async (ctx) => {
   const config = ctx.config as {
     query?: unknown;
@@ -117,18 +145,26 @@ export const tavily: Fetcher = async (ctx) => {
   const results = Array.isArray(data.results) ? data.results : [];
 
   const jobs: NormalizedJob[] = [];
+  const seenIds = new Set<string>();
   for (const raw of results) {
     if (!raw) continue;
     if (typeof raw.url !== "string" || raw.url.trim() === "") continue;
     if (typeof raw.title !== "string" || raw.title.trim() === "") continue;
     if (typeof raw.score === "number" && raw.score < minScore) continue;
 
+    const url = normalizeListingUrl(raw.url);
+    const id = `tavily:${url}`;
+    // Results arrive score-descending; keep the first (highest-scoring) of
+    // any http/https or "/apply" variant of the same posting.
+    if (seenIds.has(id)) continue;
+    seenIds.add(id);
+
     jobs.push({
-      id: `tavily:${raw.url}`,
+      id,
       title: decodeEntities(raw.title),
-      company: companyFromListingUrl(raw.url),
+      company: companyFromListingUrl(url),
       company_url: null,
-      listing_url: raw.url,
+      listing_url: url,
       location: null,
       posted_at: null,
       source: "tavily",
