@@ -5,6 +5,8 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+## 0.3.0 — 2026-08-21
+
 - Resume upload: `PUT /api/resume` takes a PDF, extracts its text with Workers AI
   (`toMarkdown`) and stores it in D1; `GET /api/resume` returns metadata only
   (filename, upload time, character count) — the text is never served.
@@ -24,6 +26,7 @@ line per significant feature, fix, or behaviour change.
   star in the tile's top-right corner.
 - The match-score accent bar now runs down the tile's left edge as well as along the
   bottom.
+- Jobs list is now ordered by posting date first (then by when it was first seen).
 
 ## 0.2.0 — 2026-08-20
 
