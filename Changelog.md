@@ -5,6 +5,8 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+## 0.7.0 — 2026-08-21
+
 - Tavily added as a job source (web search over ATS job boards; needs `TAVILY_API_KEY`).
 
 ## 0.6.0 — 2026-08-21
