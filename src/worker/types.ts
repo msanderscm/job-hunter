@@ -5,6 +5,7 @@ export interface Env {
   ADMIN_TOKEN?: string;
   ADZUNA_APP_ID?: string;
   ADZUNA_APP_KEY?: string;
+  TAVILY_API_KEY?: string;
   [key: string]: unknown;
 }
 
