@@ -5,6 +5,8 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+## 0.4.0 — 2026-08-21
+
 - Cheaper AI scoring: the resume is condensed once per upload into a compact structured
   profile (~2.5k chars) that the scorer sends with every batch, instead of re-sending 12k
   characters of raw resume with each one. `GET /api/resume` reports `summary_chars`; the
@@ -18,6 +20,8 @@ line per significant feature, fix, or behaviour change.
   `deduped`, and the jobs list flags copied ratings in the score badge's tooltip.
 - Migration 0006 adds `resume.summary`/`summary_model`/`summarized_at` and
   `jobs.embedding`/`embedding_model`/`duplicate_of`.
+- Unit tests: `npm test` (vitest) covers the embedding/dedupe helpers; the tests make no
+  Workers AI calls.
 
 ## 0.3.0 — 2026-08-21
 
