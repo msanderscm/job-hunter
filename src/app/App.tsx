@@ -30,7 +30,7 @@ export function App() {
         )}
       </main>
       <footer className="app-footer">
-        <p>Fetches run daily at 06:00 and 10:00 UTC</p>
+        <p>Fetches run daily at 11:00 and 18:00 UTC</p>
       </footer>
     </div>
   );
