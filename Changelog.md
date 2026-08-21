@@ -5,6 +5,12 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+- Fix Tavily source: `include_domains` now uses registrable root domains (`greenhouse.io`,
+  `lever.co`, `ashbyhq.com`, `workable.com`) instead of specific subdomains, which matched
+  zero results; listing URLs are also normalized (https, no query/hash, no trailing
+  `/apply` segment) so http/https and `/apply` variants of the same posting no longer
+  create duplicate digest entries.
+
 ## 0.7.0 — 2026-08-21
 
 - Tavily added as a job source (web search over ATS job boards; needs `TAVILY_API_KEY`).
