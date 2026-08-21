@@ -85,6 +85,12 @@ Open `http://localhost:8787/#/manage`. Reading is open; the first save prompts f
 
 Criteria and source changes take effect immediately on the next cron run—no redeploy needed.
 
+**Triaging jobs (Jobs page):** every tile has a footer with **✓ Save** and **✕ Delete**. Saved
+tiles get a purple border and stay listed (they never age out of the 7-day window); deleted
+ones leave the **Current** tab but stay in the database so the next fetch won't re-list them.
+The **Saved** and **Deleted** tabs show each set, with **Unsave** / **Undelete** to reverse.
+These actions prompt for the `ADMIN_TOKEN` the first time in a session.
+
 **Managing sources:**
 - Toggle each source on/off to enable or disable it.
 - Edit JSON config:
@@ -217,7 +223,8 @@ title/company/location alone (`INSERT OR IGNORE` never backfills an existing row
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/api/jobs` | Open | Jobs first seen in the last 7 days, newest first. |
+| GET | `/api/jobs` | Open | Jobs first seen in the last 7 days (plus any with `status: "saved"`, which never age out), newest first. Each job carries `status` (`new` \| `saved` \| `deleted`) and `status_changed_at`. |
+| PATCH | `/api/jobs/:id` | Bearer token | Set a job's triage status. Body: `{ status: "new" \| "saved" \| "deleted" }`. Returns the updated job. 400 on an unknown status, 404 on an unknown id. Deleted jobs stay in the DB so the importer won't re-list them; the Jobs page's Save / Delete / Undelete buttons call this. |
 | GET | `/api/criteria` | Open | Fetch current matching criteria. |
 | PUT | `/api/criteria` | Bearer token | Replace criteria. Body: `{ required_keywords: [], excluded_keywords: [], locations: [], remote_ok: bool, max_age_days: 1-30 }`. 400 with a message on bad input. |
 | GET | `/api/sources` | Open | All sources with `enabled`, `config`, `requires_secrets` (names only) and `secrets_present`. |

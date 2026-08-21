@@ -17,9 +17,13 @@ Project-specific rules for Claude Code. These override default behaviour.
 
 When the user asks for a release ("cut a release", "release 0.3.0", etc.):
 
-1. **Pre-flight — stop if dirty.** Run `git status --porcelain`. If it prints anything
-   (uncommitted or untracked changes), report exactly what is dirty and **do nothing
-   else**. Do not stash, commit, or discard on the user's behalf.
+1. **Pre-flight — commit the working tree.** Run `git status --porcelain`. A release
+   request is permission to commit whatever is in the working tree (modified and
+   untracked files) and include it in the release: review the diff, commit it on
+   `develop` with a conventional message describing the change, and list what was
+   committed in the release report. Do not stash or discard anything; if the tree
+   contains something that clearly shouldn't be committed (secrets, `.dev.vars`,
+   stray large files), stop and ask instead.
 2. Make sure you are on `develop` and it is up to date: `git checkout develop && git pull --ff-only`.
 3. **Pick the version.** Use the version the user gave. If none was given, infer from
    the Unreleased changelog entries (semver: breaking → major, feature → minor,

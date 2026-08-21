@@ -25,6 +25,14 @@ export interface NormalizedJob {
 export type WorkMode = "remote" | "hybrid" | "onsite" | "unknown";
 
 /**
+ * User-driven triage state for a listing (see migrations/0007). "new" is the
+ * default (shown in the Current tab); "saved" is kept and highlighted, and
+ * never ages out of /api/jobs; "deleted" is hidden from Current but kept in
+ * the DB so the importer's INSERT OR IGNORE won't re-list it.
+ */
+export type JobStatus = "new" | "saved" | "deleted";
+
+/**
  * A jobs-table row as returned by the API: NormalizedJob (minus `description`,
  * which is stored but never served) + when we first stored it + the AI match
  * rating (see src/worker/scoring.ts; null until the job has been evaluated).
@@ -37,6 +45,9 @@ export interface JobRow extends Omit<NormalizedJob, "description"> {
   work_mode: WorkMode | null;
   /** Id of the near-identical earlier listing this rating was copied from; null when the LLM rated it. */
   duplicate_of: string | null;
+  status: JobStatus;
+  /** UTC timestamp of the last status change; null while still "new". */
+  status_changed_at: string | null;
 }
 
 /** Metadata about the stored resume. Deliberately excludes the text itself. */

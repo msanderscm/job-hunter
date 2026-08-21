@@ -1,4 +1,4 @@
-import type { Criteria, JobRow, NormalizedJob, ResumeInfo, SourceRow } from "./types";
+import type { Criteria, JobRow, JobStatus, NormalizedJob, ResumeInfo, SourceRow } from "./types";
 
 function safeJsonParse<T>(text: unknown, fallback: T): T {
   if (typeof text !== "string" || text.trim() === "") return fallback;
@@ -107,18 +107,41 @@ export async function insertJobs(db: D1Database, jobs: NormalizedJob[]): Promise
   return results.reduce((sum, result) => sum + (result.meta?.changes ?? 0), 0);
 }
 
+/** Column list shared by listRecentJobs and setJobStatus so the two queries can't drift. */
+const JOB_ROW_COLUMNS = `id, title, company, company_url, listing_url, location, posted_at, first_seen_at, source,
+              match_score, match_reason, scored_at, work_mode, duplicate_of, status, status_changed_at`;
+
+/**
+ * Jobs from the last `days` days, plus any 'saved' job regardless of age —
+ * a save is a deliberate keep, so it must never silently age out of the list.
+ */
 export async function listRecentJobs(db: D1Database, days = 7): Promise<JobRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, title, company, company_url, listing_url, location, posted_at, first_seen_at, source,
-              match_score, match_reason, scored_at, work_mode, duplicate_of
+      `SELECT ${JOB_ROW_COLUMNS}
        FROM jobs
-       WHERE first_seen_at >= datetime('now', ?1)
+       WHERE (first_seen_at >= datetime('now', ?1) OR status = 'saved')
        ORDER BY posted_at DESC, first_seen_at DESC`
     )
     .bind(`-${days} days`)
     .all<JobRow>();
   return results ?? [];
+}
+
+/**
+ * Sets a job's triage status (see migrations/0007) and stamps status_changed_at.
+ * Returns the updated row, or null if no job matches `id`.
+ */
+export async function setJobStatus(db: D1Database, id: string, status: JobStatus): Promise<JobRow | null> {
+  const result = await db
+    .prepare(`UPDATE jobs SET status = ?1, status_changed_at = datetime('now') WHERE id = ?2`)
+    .bind(status, id)
+    .run();
+
+  if ((result.meta?.changes ?? 0) === 0) return null;
+
+  const row = await db.prepare(`SELECT ${JOB_ROW_COLUMNS} FROM jobs WHERE id = ?1`).bind(id).first<JobRow>();
+  return row ?? null;
 }
 
 // --- Resume (single row, id = 1; see migrations/0004) ---------------------

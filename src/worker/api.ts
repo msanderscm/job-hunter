@@ -1,8 +1,9 @@
-import type { Criteria, Env, ResumeInfo } from "./types";
+import type { Criteria, Env, JobStatus, ResumeInfo } from "./types";
 import {
   loadCriteria,
   loadSources,
   listRecentJobs,
+  setJobStatus,
   updateCriteria,
   updateSource,
   getSource,
@@ -101,6 +102,51 @@ function validateCriteriaBody(body: unknown): Criteria {
     remote_ok: b.remote_ok,
     max_age_days: b.max_age_days,
   };
+}
+
+const JOB_STATUSES: JobStatus[] = ["new", "saved", "deleted"];
+
+/** Validates a candidate job status; returns null (not a throw) so callers can format their own 400. */
+export function parseJobStatus(value: unknown): JobStatus | null {
+  if (typeof value !== "string") return null;
+  return (JOB_STATUSES as string[]).includes(value) ? (value as JobStatus) : null;
+}
+
+/**
+ * PATCH /api/jobs/:id — user-driven save/delete triage (see migrations/0007).
+ * Admin-only, same as the sources route: this mutates state, not just reads it.
+ */
+async function handleJobStatusRoute(request: Request, env: Env, id: string): Promise<Response> {
+  if (request.method !== "PATCH") {
+    return json({ error: "method not allowed" }, 405);
+  }
+
+  const authFailure = requireAdmin(request, env);
+  if (authFailure) return authFailure;
+
+  let body: unknown;
+  try {
+    body = await readJsonBody(request);
+  } catch (err) {
+    return json({ error: (err as Error).message }, 400);
+  }
+
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return json({ error: "body: must be a JSON object" }, 400);
+  }
+  const b = body as Record<string, unknown>;
+
+  const status = parseJobStatus(b.status);
+  if (!status) {
+    return json({ error: "status: must be one of new, saved, deleted" }, 400);
+  }
+
+  const job = await setJobStatus(env.DB, id, status);
+  if (!job) {
+    return json({ error: "job not found" }, 404);
+  }
+
+  return json(job);
 }
 
 function secretsPresent(env: Env, names: string[]): boolean {
@@ -282,6 +328,11 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
       if (request.method !== "GET") return json({ error: "method not allowed" }, 405);
       const jobs = await listRecentJobs(env.DB);
       return json({ jobs });
+    }
+
+    const jobStatusMatch = /^\/api\/jobs\/([^/]+)$/.exec(path);
+    if (jobStatusMatch) {
+      return handleJobStatusRoute(request, env, decodeURIComponent(jobStatusMatch[1]));
     }
 
     // Manual trigger of the morning fetch. Admin-only so a public URL can't be

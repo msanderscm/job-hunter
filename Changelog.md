@@ -5,6 +5,13 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+- Triage listings from the Jobs page: each tile now has a footer with **Save** (purple border,
+  never ages out of the list) and **Delete** (hidden, but kept in the DB so the importer won't
+  re-list it), and the page has **Current / Saved / Deleted** tabs with Unsave / Undelete.
+  Backed by a new `status` column (migration 0007) and `PATCH /api/jobs/:id` (Bearer token,
+  body `{ status: "new" | "saved" | "deleted" }`). Deleted-but-unrated jobs are skipped by the
+  AI scorer. The admin token is now shared between the Jobs and Manage pages for the session.
+
 ## 0.4.2 — 2026-08-21
 
 - Resume profile extraction no longer drops skills: the summariser now extracts into JSON
