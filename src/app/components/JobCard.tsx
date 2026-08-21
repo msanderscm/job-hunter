@@ -5,6 +5,40 @@ interface JobCardProps {
   job: Job;
 }
 
+/** 5-point star path, shared by the solid (remote) and outline (hybrid) markers. */
+const STAR_PATH = "M12 2 L14.9 8.5 L22 9.2 L16.8 14.1 L18.4 21 L12 17.3 L5.6 21 L7.2 14.1 L2 9.2 L9.1 8.5 Z";
+
+/** Remote/hybrid marker for the top-right of a job tile; renders nothing for onsite/unknown/null. */
+function WorkModeBadge({ workMode }: { workMode: Job["work_mode"] }) {
+  if (workMode === "remote") {
+    return (
+      <svg
+        className="job-card-work-mode"
+        viewBox="0 0 24 24"
+        role="img"
+        aria-label="Remote"
+      >
+        <title>Remote</title>
+        <path d={STAR_PATH} fill="#ee3e32" stroke="#ee3e32" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  if (workMode === "hybrid") {
+    return (
+      <svg
+        className="job-card-work-mode"
+        viewBox="0 0 24 24"
+        role="img"
+        aria-label="Hybrid (remote with some on-site)"
+      >
+        <title>Hybrid (remote with some on-site)</title>
+        <path d={STAR_PATH} fill="none" stroke="#ee3e32" strokeWidth="1.75" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+  return null;
+}
+
 export function JobCard({ job }: JobCardProps) {
   const companyUrl =
     job.company_url ||
@@ -12,7 +46,8 @@ export function JobCard({ job }: JobCardProps) {
   const isFallbackCompanyLink = !job.company_url;
 
   return (
-    <article className="job-card">
+    <article className="job-card" data-score={job.match_score ?? "none"}>
+      <WorkModeBadge workMode={job.work_mode} />
       <h3 className="job-card-title">
         <a href={job.listing_url} target="_blank" rel="noopener noreferrer">
           {job.title}
@@ -36,6 +71,17 @@ export function JobCard({ job }: JobCardProps) {
       <div className="job-card-meta">
         <span className="job-card-location">{job.location || "—"}</span>
         <span className="pill">{job.source}</span>
+        {job.match_score !== null && (
+          <span
+            className="pill pill-match"
+            title={job.match_reason ?? undefined}
+            aria-label={`match ${job.match_score} out of 5${
+              job.match_reason ? `: ${job.match_reason}` : ""
+            }`}
+          >
+            match {job.match_score}/5
+          </span>
+        )}
       </div>
       <p className="job-card-timing">
         first seen {timeAgo(job.first_seen_at)}

@@ -41,7 +41,8 @@ export function RunNow({ adminToken }: RunNowProps) {
         </button>
         {result && (
           <span className="save-success">
-            Fetched {result.fetched}, matched {result.matched}, {result.inserted} new
+            Fetched {result.fetched}, matched {result.matched}, {result.inserted} new, scored{" "}
+            {result.scored}
             {result.skipped.length > 0 && ` · skipped: ${result.skipped.join(", ")}`}
             {result.failed.length > 0 && ` · failed: ${result.failed.join(", ")}`}
             {" · "}

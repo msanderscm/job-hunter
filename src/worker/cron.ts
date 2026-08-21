@@ -3,11 +3,14 @@ import { loadCriteria, loadSources, insertJobs } from "./db";
 import { getFetcher } from "./sources";
 import type { Fetcher } from "./sources";
 import { matchesCriteria } from "./matching";
+import { scorePendingJobs } from "./scoring";
 
 export interface DigestResult {
   fetched: number;
   matched: number;
   inserted: number;
+  /** Jobs rated against the resume during this run (0 when no resume is uploaded). */
+  scored: number;
   skipped: string[];
   failed: string[];
 }
@@ -79,16 +82,27 @@ export async function runDigest(env: Env): Promise<DigestResult> {
   });
   const inserted = await insertJobs(env.DB, matchedJobs);
 
+  // Rate the new (and any still-unscored) jobs against the uploaded resume.
+  // A scoring failure must never fail the digest — the jobs are already
+  // stored, and unscored ones are retried on the next run.
+  let scored = 0;
+  try {
+    ({ scored } = await scorePendingJobs(env, { limit: 80 }));
+  } catch (err) {
+    console.error("[digest] scoring failed", err);
+  }
+
   const summary: DigestResult = {
     fetched,
     matched: matchedJobs.length,
     inserted,
+    scored,
     skipped,
     failed,
   };
 
   console.log(
-    `[digest] fetched=${summary.fetched} matched=${summary.matched} inserted=${summary.inserted} skipped=[${summary.skipped.join(",")}] failed=[${summary.failed.join(",")}]`
+    `[digest] fetched=${summary.fetched} matched=${summary.matched} inserted=${summary.inserted} scored=${summary.scored} skipped=[${summary.skipped.join(",")}] failed=[${summary.failed.join(",")}]`
   );
 
   return summary;

@@ -1,4 +1,6 @@
 {
+  // Worker-side TypeScript config. Lives next to the code so editors pick it up
+  // automatically (the root tsconfig.json only covers the React app in src/app).
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2022"],
@@ -10,5 +12,5 @@
     "noEmit": true,
     "isolatedModules": true
   },
-  "include": ["src/worker"]
+  "include": ["./**/*.ts"]
 }

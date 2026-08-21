@@ -1,6 +1,6 @@
 import type { NormalizedJob } from "../types";
 import type { Fetcher } from "./types";
-import { decodeEntities, stripStrongTags } from "../util";
+import { decodeEntities, htmlToText, stripStrongTags } from "../util";
 
 interface AdzunaResult {
   id?: string | number;
@@ -9,6 +9,7 @@ interface AdzunaResult {
   redirect_url?: string;
   location?: { display_name?: string };
   created?: string;
+  description?: string;
 }
 
 interface AdzunaResponse {
@@ -85,6 +86,7 @@ export const adzuna: Fetcher = async (ctx) => {
       location: raw.location?.display_name ?? null,
       posted_at: toIsoOrNull(raw.created),
       source: "adzuna",
+      description: typeof raw.description === "string" && raw.description.trim() !== "" ? htmlToText(raw.description) : null,
     });
   }
 
