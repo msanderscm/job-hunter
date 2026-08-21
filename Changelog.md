@@ -5,6 +5,12 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+- Resume profile extraction no longer drops skills: the summariser now extracts into JSON
+  arrays (one item per named technology/tool, nothing merged or generalised) and renders
+  the profile text from them, the length budget is raised to 6,000 characters, and a
+  second completeness pass asks what the first pass missed — additions are only kept if
+  they occur verbatim in the resume. Re-upload the resume to rebuild the profile.
+
 ## 0.4.1 — 2026-08-21
 
 - The admin can now read the resume's condensed profile summary from the Manage page:

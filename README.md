@@ -144,12 +144,15 @@ imports is rated against it.
 1. The uploaded PDF (≤ 5 MB) is converted to text by **Workers AI**'s document
    conversion (`env.AI.toMarkdown`) — one call per upload. The text is stored in the
    single-row `resume` table, capped at 50,000 characters. The same upload then condenses
-   the text once into a short structured **profile** (`resume.summary`, migration 0006:
-   title, years of experience, seniority, skills, tools, roles, quantified achievements —
-   ~2,500 characters) with `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; that profile is
-   what the scorer sends with every batch instead of 12,000 characters of raw resume. If
-   the summary step fails, the next scoring run rebuilds it (and falls back to the raw
-   text until then). The raw text is never logged or returned by the API: `GET
+   the text once into a structured **profile** (`resume.summary`, migration 0006: title,
+   years of experience, seniority, skills, tools, roles, quantified achievements — up to
+   6,000 characters) with `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; that profile is
+   what the scorer sends with every batch instead of 12,000 characters of raw resume. The
+   model is asked to *extract* into JSON arrays (one item per named technology, nothing
+   merged or generalised) rather than to write prose, and a second pass audits the result
+   against the resume for anything left out — an addition is only kept if it occurs
+   verbatim in the resume text. Two AI calls per upload. If the summary step fails, the
+   next scoring run rebuilds it (and falls back to the raw text until then). The raw text is never logged or returned by the API: `GET
    /api/resume` gives back only `filename`, `uploaded_at`, `chars` and `summary_chars`.
    The profile itself, however, can be read by the admin — `GET /api/resume/summary`
    (Bearer token) returns it, and the Manage page's "View profile summary" button on the
@@ -199,7 +202,7 @@ is included on `/api/jobs` alongside the score fields.
 Cost: like the Hacker News source, this uses the `[ai]` binding, no secrets. A run that
 scores 80 jobs is at most 5 LLM requests (80 ÷ 16 per batch — fewer when re-posts are
 deduplicated) plus 1–2 cheap embedding requests (50 texts per call), and each resume
-upload costs 1 conversion request plus 1 summary request; Workers AI is included in the
+upload costs 1 conversion request plus 2 profile requests (extract + completeness check); Workers AI is included in the
 Workers free tier (10,000 neurons/day) and two daily runs stay well inside it. A full
 re-evaluate is the expensive one (up to ~8 `/api/score` requests for a full 7-day
 window), which is why it's a separate, explicit action. In local dev the `AI` binding calls the real Workers AI service through
