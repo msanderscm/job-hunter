@@ -151,6 +151,19 @@ export async function getResumeInfo(db: D1Database): Promise<ResumeInfo | null> 
 }
 
 /**
+ * The summary itself (not just its length), for the admin-only GET /api/resume/summary
+ * route. Deliberately excludes `text` — the raw resume must never be served.
+ */
+export async function loadResumeSummary(
+  db: D1Database
+): Promise<{ summary: string | null; summary_model: string | null; summarized_at: string | null } | null> {
+  const row = await db
+    .prepare("SELECT summary, summary_model, summarized_at FROM resume WHERE id = 1")
+    .first<{ summary: string | null; summary_model: string | null; summarized_at: string | null }>();
+  return row ?? null;
+}
+
+/**
  * Stores a new resume. The summary belongs to the *previous* text, so it is
  * reset here and rebuilt by the caller (or lazily by the next scoring run).
  */

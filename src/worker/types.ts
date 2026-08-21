@@ -44,7 +44,10 @@ export interface ResumeInfo {
   filename: string;
   uploaded_at: string;
   chars: number;
-  /** Length of the condensed profile summary the scorer uses; null until one has been built. */
+  /**
+   * Length of the condensed profile summary the scorer uses; null until one has been
+   * built. The summary text itself is available to the admin via GET /api/resume/summary.
+   */
   summary_chars: number | null;
 }
 

@@ -6,8 +6,9 @@
 --   * `resume.summary` holds a ~2.5k-character structured profile produced once
 --     per upload by src/worker/resume-summary.ts (`summary_model` records which
 --     model wrote it, `summarized_at` when). The scorer sends that instead of
---     the raw text. Like `resume.text` it is NEVER returned by the API —
---     /api/resume exposes `length(summary)` only.
+--     the raw text. Unlike `resume.text` (which is never returned by the API —
+--     /api/resume exposes `length(summary)` only), the summary itself can be
+--     read by the admin via GET /api/resume/summary.
 --
 --   * `jobs.embedding` is the raw little-endian float32 vector of the listing
 --     text (title/company/location/description), written by
