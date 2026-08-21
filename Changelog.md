@@ -5,6 +5,8 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+## 0.7.1 — 2026-08-21
+
 - Fix Tavily source: `include_domains` now uses registrable root domains (`greenhouse.io`,
   `lever.co`, `ashbyhq.com`, `workable.com`) instead of specific subdomains, which matched
   zero results; listing URLs are also normalized (https, no query/hash, no trailing
