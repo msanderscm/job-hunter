@@ -38,6 +38,13 @@ export interface Source {
   updated_at?: string;
 }
 
+export interface User {
+  id: number;
+  username: string;
+  first_name: string;
+  created_at?: string;
+}
+
 export class ApiError extends Error {
   status: number;
 
@@ -62,15 +69,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     }
     throw new ApiError(res.status, message);
   }
+  if (res.status === 204) {
+    return undefined as T;
+  }
   return (await res.json()) as T;
 }
 
-function authHeaders(token: string): HeadersInit {
-  return {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
-  };
-}
+const jsonHeaders: HeadersInit = { "Content-Type": "application/json" };
 
 export interface RunSummary {
   fetched: number;
@@ -88,18 +93,18 @@ export interface ResumeInfo {
   summary_chars: number | null;
 }
 
-export function runDigest(token: string): Promise<RunSummary> {
-  return request<RunSummary>("/api/run", { method: "POST", headers: authHeaders(token) });
+export function runDigest(): Promise<RunSummary> {
+  return request<RunSummary>("/api/run", { method: "POST" });
 }
 
 export function getJobs(): Promise<{ jobs: Job[] }> {
   return request<{ jobs: Job[] }>("/api/jobs");
 }
 
-export function setJobStatus(id: string, status: JobStatus, token: string): Promise<Job> {
+export function setJobStatus(id: string, status: JobStatus): Promise<Job> {
   return request<Job>(`/api/jobs/${encodeURIComponent(id)}`, {
     method: "PATCH",
-    headers: authHeaders(token),
+    headers: jsonHeaders,
     body: JSON.stringify({ status }),
   });
 }
@@ -108,13 +113,10 @@ export function getCriteria(): Promise<Criteria> {
   return request<Criteria>("/api/criteria");
 }
 
-export function putCriteria(
-  criteria: Omit<Criteria, "updated_at">,
-  token: string
-): Promise<Criteria> {
+export function putCriteria(criteria: Omit<Criteria, "updated_at">): Promise<Criteria> {
   return request<Criteria>("/api/criteria", {
     method: "PUT",
-    headers: authHeaders(token),
+    headers: jsonHeaders,
     body: JSON.stringify(criteria),
   });
 }
@@ -130,34 +132,28 @@ export interface ResumeSummary {
 }
 
 /** Admin-only: the condensed profile summary itself (not just its length). */
-export function getResumeSummary(token: string): Promise<ResumeSummary> {
-  return request<ResumeSummary>("/api/resume/summary", { headers: authHeaders(token) });
+export function getResumeSummary(): Promise<ResumeSummary> {
+  return request<ResumeSummary>("/api/resume/summary");
 }
 
-export function putResume(file: File, token: string): Promise<{ resume: ResumeInfo }> {
+export function putResume(file: File): Promise<{ resume: ResumeInfo }> {
   const fd = new FormData();
   fd.append("file", file, file.name);
   return request<{ resume: ResumeInfo }>("/api/resume", {
     method: "PUT",
-    headers: { Authorization: `Bearer ${token}` },
     body: fd,
   });
 }
 
-export function rescore(token: string): Promise<{ cleared: number; pending: number }> {
-  return request<{ cleared: number; pending: number }>("/api/rescore", {
-    method: "POST",
-    headers: authHeaders(token),
-  });
+export function rescore(): Promise<{ cleared: number; pending: number }> {
+  return request<{ cleared: number; pending: number }>("/api/rescore", { method: "POST" });
 }
 
 export function scoreNext(
-  token: string,
   limit = 16
 ): Promise<{ scored: number; pending: number; deduped: number }> {
   return request<{ scored: number; pending: number; deduped: number }>(`/api/score?limit=${limit}`, {
     method: "POST",
-    headers: authHeaders(token),
   });
 }
 
@@ -167,12 +163,43 @@ export function getSources(): Promise<{ sources: Source[] }> {
 
 export function putSource(
   id: string,
-  patch: { enabled?: boolean; config?: Record<string, unknown> },
-  token: string
+  patch: { enabled?: boolean; config?: Record<string, unknown> }
 ): Promise<Source> {
   return request<Source>(`/api/sources/${encodeURIComponent(id)}`, {
     method: "PUT",
-    headers: authHeaders(token),
+    headers: jsonHeaders,
     body: JSON.stringify(patch),
+  });
+}
+
+export function login(username: string, password: string): Promise<{ user: User }> {
+  return request<{ user: User }>("/api/auth/login", {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export function logout(): Promise<void> {
+  return request<void>("/api/auth/logout", { method: "POST" });
+}
+
+export function getMe(): Promise<{ user: User }> {
+  return request<{ user: User }>("/api/auth/me");
+}
+
+export function getUsers(): Promise<{ users: User[] }> {
+  return request<{ users: User[] }>("/api/users");
+}
+
+export function createUser(input: {
+  username: string;
+  password: string;
+  first_name: string;
+}): Promise<{ user: User }> {
+  return request<{ user: User }>("/api/users", {
+    method: "POST",
+    headers: jsonHeaders,
+    body: JSON.stringify(input),
   });
 }

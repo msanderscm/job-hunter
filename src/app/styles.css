@@ -68,6 +68,10 @@ code {
 .app-nav { display: flex; gap: 1.25rem; }
 .app-nav a { text-decoration: none; color: var(--color-text-muted); font-weight: 500; padding-bottom: 2px; border-bottom: 2px solid transparent; }
 .app-nav a.active { color: var(--color-text); border-bottom-color: var(--color-primary); }
+.app-header-right { display: flex; align-items: center; gap: 1.25rem; }
+.app-user { display: flex; align-items: center; gap: 0.6rem; font-size: 0.9rem; color: var(--color-text-muted); }
+.app-user a { text-decoration: none; color: var(--color-text-muted); font-weight: 500; font-size: 1rem; }
+.app-user a:hover { color: var(--color-text); }
 .app-main { flex: 1; width: 100%; padding-top: 1.5rem; padding-bottom: 2.5rem; }
 .app-footer { color: var(--color-text-muted); font-size: 0.85rem; padding-bottom: 1.5rem; text-align: center; }
 
@@ -93,7 +97,7 @@ code {
 .filter-input { flex: 1 1 240px; }
 .job-count { color: var(--color-text-muted); font-size: 0.9rem; white-space: nowrap; }
 
-input[type="text"], input[type="search"], input[type="number"], select, textarea {
+input[type="text"], input[type="search"], input[type="number"], input[type="password"], select, textarea {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 6px;
@@ -175,6 +179,14 @@ textarea { width: 100%; resize: vertical; font-family: ui-monospace, SFMono-Regu
 
 .manage-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.75rem; margin-bottom: 1rem; }
 .token-indicator { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; color: var(--color-text-muted); }
+
+.login-card { max-width: 380px; margin: 2rem auto; }
+.form-field { display: flex; flex-direction: column; gap: 0.3rem; margin-bottom: 0.9rem; }
+.form-field label { font-weight: 600; font-size: 0.9rem; }
+
+.users-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.users-list li { display: flex; justify-content: space-between; gap: 1rem; border: 1px solid var(--color-border); border-radius: 6px; padding: 0.5rem 0.75rem; }
+.users-list .muted { color: var(--color-text-muted); font-size: 0.85rem; }
 
 .toggle-switch { position: relative; display: inline-block; width: 42px; height: 24px; }
 .toggle-switch input { opacity: 0; width: 0; height: 0; }

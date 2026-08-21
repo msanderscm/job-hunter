@@ -1,16 +1,13 @@
 import { useState } from "react";
 import { runDigest, type RunSummary } from "../api";
-import type { UseAdminToken } from "../hooks/useAdminToken";
-
-interface RunNowProps {
-  adminToken: UseAdminToken;
-}
+import { useAuth } from "../auth";
 
 /**
  * Manually triggers the same fetch the cron runs every morning, so the jobs
  * list can be refreshed on demand (handy for demos and after changing criteria).
  */
-export function RunNow({ adminToken }: RunNowProps) {
+export function RunNow() {
+  const auth = useAuth();
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<RunSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +17,7 @@ export function RunNow({ adminToken }: RunNowProps) {
     setError(null);
     setResult(null);
     try {
-      const summary = await adminToken.withAuth((token) => runDigest(token));
+      const summary = await auth.guard(() => runDigest());
       setResult(summary);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Run failed");

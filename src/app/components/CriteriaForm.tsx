@@ -1,14 +1,10 @@
 import { useEffect, useState } from "react";
 import { ApiError, getCriteria, putCriteria } from "../api";
 import type { Criteria } from "../api";
-import type { UseAdminToken } from "../hooks/useAdminToken";
+import { useAuth } from "../auth";
 import { TagInput } from "./TagInput";
 
 type LoadState = "loading" | "error" | "ready";
-
-interface CriteriaFormProps {
-  adminToken: UseAdminToken;
-}
 
 const EMPTY_CRITERIA: Criteria = {
   required_keywords: [],
@@ -18,7 +14,8 @@ const EMPTY_CRITERIA: Criteria = {
   max_age_days: 7,
 };
 
-export function CriteriaForm({ adminToken }: CriteriaFormProps) {
+export function CriteriaForm() {
+  const auth = useAuth();
   const [state, setState] = useState<LoadState>("loading");
   const [loadError, setLoadError] = useState("");
   const [criteria, setCriteria] = useState<Criteria>(EMPTY_CRITERIA);
@@ -51,7 +48,7 @@ export function CriteriaForm({ adminToken }: CriteriaFormProps) {
     try {
       const { updated_at, ...payload } = criteria;
       void updated_at;
-      const updated = await adminToken.withAuth((token) => putCriteria(payload, token));
+      const updated = await auth.guard(() => putCriteria(payload));
       setCriteria(updated);
       setSaveMessage({ kind: "success", text: "Saved ✓" });
     } catch (err) {

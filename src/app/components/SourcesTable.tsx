@@ -1,13 +1,9 @@
 import { useEffect, useState } from "react";
 import { ApiError, getSources, putSource } from "../api";
 import type { Source } from "../api";
-import type { UseAdminToken } from "../hooks/useAdminToken";
+import { useAuth } from "../auth";
 
 type LoadState = "loading" | "error" | "ready";
-
-interface SourcesTableProps {
-  adminToken: UseAdminToken;
-}
 
 interface RowState {
   configDraft: string;
@@ -27,7 +23,8 @@ function buildRowState(source: Source): RowState {
   };
 }
 
-export function SourcesTable({ adminToken }: SourcesTableProps) {
+export function SourcesTable() {
+  const auth = useAuth();
   const [state, setState] = useState<LoadState>("loading");
   const [loadError, setLoadError] = useState("");
   const [sources, setSources] = useState<Source[]>([]);
@@ -59,8 +56,8 @@ export function SourcesTable({ adminToken }: SourcesTableProps) {
     );
     updateRow(source.id, { togglingEnabled: true });
     try {
-      const updated = await adminToken.withAuth((token) =>
-        putSource(source.id, { enabled: !source.enabled }, token)
+      const updated = await auth.guard(() =>
+        putSource(source.id, { enabled: !source.enabled })
       );
       setSources((prev) => prev.map((s) => (s.id === source.id ? updated : s)));
     } catch (err) {
@@ -92,8 +89,8 @@ export function SourcesTable({ adminToken }: SourcesTableProps) {
     }
     updateRow(source.id, { configError: null, savingConfig: true, configSaveMessage: null });
     try {
-      const updated = await adminToken.withAuth((token) =>
-        putSource(source.id, { config: parsed as Record<string, unknown> }, token)
+      const updated = await auth.guard(() =>
+        putSource(source.id, { config: parsed as Record<string, unknown> })
       );
       setSources((prev) => prev.map((s) => (s.id === source.id ? updated : s)));
       updateRow(source.id, {

@@ -9,14 +9,10 @@ import {
   type ResumeInfo,
   type ResumeSummary,
 } from "../api";
-import type { UseAdminToken } from "../hooks/useAdminToken";
+import { useAuth } from "../auth";
 import { timeAgo } from "../utils/time";
 
 type LoadState = "loading" | "error" | "ready";
-
-interface ResumeCardProps {
-  adminToken: UseAdminToken;
-}
 
 /** Jobs rated per `/api/score` call — matches the server's batch size, so one step is one AI call. */
 const RESCORE_BATCH = 16;
@@ -25,7 +21,8 @@ function isPdf(file: File): boolean {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
 }
 
-export function ResumeCard({ adminToken }: ResumeCardProps) {
+export function ResumeCard() {
+  const auth = useAuth();
   const [state, setState] = useState<LoadState>("loading");
   const [loadError, setLoadError] = useState("");
   const [resume, setResume] = useState<ResumeInfo | null>(null);
@@ -74,9 +71,7 @@ export function ResumeCard({ adminToken }: ResumeCardProps) {
     setUploading(true);
     setUploadMessage(null);
     try {
-      const { resume: updated } = await adminToken.withAuth((token) =>
-        putResume(selectedFile, token)
-      );
+      const { resume: updated } = await auth.guard(() => putResume(selectedFile));
       setResume(updated);
       // A new upload resets the summary; drop any stale panel contents.
       setSummary(null);
@@ -101,19 +96,17 @@ export function ResumeCard({ adminToken }: ResumeCardProps) {
     setRescoring(true);
     setRescoreError(null);
     setRescoreResult(null);
-    // The whole loop runs inside a single withAuth call: withAuth's `token` argument
-    // is fresh, but the `token` React state it closes over can be stale (or still
-    // null) between renders, so calling withAuth once per step would re-prompt for
-    // the admin token on every batch.
+    // The whole loop runs inside a single guard() call so a 401 partway through
+    // (session expired) redirects to login once, instead of per batch.
     try {
-      const { total, done, remaining } = await adminToken.withAuth(async (token) => {
-        const { pending: total } = await rescore(token);
+      const { total, done, remaining } = await auth.guard(async () => {
+        const { pending: total } = await rescore();
         let done = 0;
         let remaining = total;
         let stalls = 0;
         setProgress(total > 0 ? { current: 1, total } : null);
         while (remaining > 0) {
-          const r = await scoreNext(token, RESCORE_BATCH);
+          const r = await scoreNext(RESCORE_BATCH);
           done += r.scored;
           remaining = r.pending;
           if (r.scored === 0) {
@@ -152,7 +145,7 @@ export function ResumeCard({ adminToken }: ResumeCardProps) {
     setSummaryError(null);
     setSummaryLoading(true);
     try {
-      const data = await adminToken.withAuth((token) => getResumeSummary(token));
+      const data = await auth.guard(() => getResumeSummary());
       setSummary(data);
       setSummaryVisible(true);
     } catch (err) {
