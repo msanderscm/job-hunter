@@ -12,8 +12,9 @@ import type { Env } from "./types";
 // more than price here: this deliberately uses the same 70B model as the
 // scorer. Failure is never fatal — scoring.ts falls back to the raw text.
 //
-// Like `resume.text`, the summary must never be logged or returned by the API
-// (see migrations/0006); /api/resume exposes its length only.
+// Like `resume.text`, the summary must never be logged (see migrations/0006).
+// /api/resume exposes only its length; the admin can read the full summary via
+// GET /api/resume/summary.
 
 export const SUMMARY_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 

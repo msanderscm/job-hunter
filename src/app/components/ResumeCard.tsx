@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { ApiError, getResume, putResume, rescore, scoreNext, type ResumeInfo } from "../api";
+import {
+  ApiError,
+  getResume,
+  getResumeSummary,
+  putResume,
+  rescore,
+  scoreNext,
+  type ResumeInfo,
+  type ResumeSummary,
+} from "../api";
 import type { UseAdminToken } from "../hooks/useAdminToken";
 import { timeAgo } from "../utils/time";
 
@@ -33,6 +42,11 @@ export function ResumeCard({ adminToken }: ResumeCardProps) {
   const [rescoreResult, setRescoreResult] = useState<{ done: number; total: number } | null>(null);
   const [rescoreError, setRescoreError] = useState<string | null>(null);
 
+  const [summary, setSummary] = useState<ResumeSummary | null>(null);
+  const [summaryVisible, setSummaryVisible] = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+  const [summaryError, setSummaryError] = useState<string | null>(null);
+
   useEffect(() => {
     getResume()
       .then((data) => {
@@ -64,6 +78,9 @@ export function ResumeCard({ adminToken }: ResumeCardProps) {
         putResume(selectedFile, token)
       );
       setResume(updated);
+      // A new upload resets the summary; drop any stale panel contents.
+      setSummary(null);
+      setSummaryVisible(false);
       setSelectedFile(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
       setUploadMessage({
@@ -124,6 +141,24 @@ export function ResumeCard({ adminToken }: ResumeCardProps) {
       setRescoreError(err instanceof ApiError ? err.message : "Failed to re-evaluate matches.");
     } finally {
       setRescoring(false);
+    }
+  }
+
+  async function handleToggleSummary() {
+    if (summaryVisible) {
+      setSummaryVisible(false);
+      return;
+    }
+    setSummaryError(null);
+    setSummaryLoading(true);
+    try {
+      const data = await adminToken.withAuth((token) => getResumeSummary(token));
+      setSummary(data);
+      setSummaryVisible(true);
+    } catch (err) {
+      setSummaryError(err instanceof ApiError ? err.message : "Failed to load profile summary.");
+    } finally {
+      setSummaryLoading(false);
     }
   }
 
@@ -205,6 +240,35 @@ export function ResumeCard({ adminToken }: ResumeCardProps) {
         Clears every rating from the last 7 days, then rates the jobs again against the current
         resume in batches of 16, showing progress as it goes.
       </p>
+
+      <div className="form-actions">
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={handleToggleSummary}
+          disabled={!resume || summaryLoading}
+        >
+          {summaryLoading ? "Loading…" : summaryVisible ? "Hide profile summary" : "View profile summary"}
+        </button>
+        {summaryError && <span className="error-text">{summaryError}</span>}
+      </div>
+      {summaryVisible && summary && (
+        <div>
+          {summary.summary !== null ? (
+            <>
+              <p className="field-helper">
+                Built by {summary.summary_model ?? "unknown model"} ·{" "}
+                {summary.summarized_at ? timeAgo(summary.summarized_at) : "unknown time"}
+              </p>
+              <pre className="resume-summary">{summary.summary}</pre>
+            </>
+          ) : (
+            <p className="field-helper">
+              No profile summary yet — it&rsquo;s built on the next scoring run.
+            </p>
+          )}
+        </div>
+      )}
     </section>
   );
 }

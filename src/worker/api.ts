@@ -7,6 +7,7 @@ import {
   updateSource,
   getSource,
   getResumeInfo,
+  loadResumeSummary,
   saveResume,
   saveResumeSummary,
 } from "./db";
@@ -187,7 +188,8 @@ const RESUME_MIN_CHARS = 50;
 
 async function handleResumeRoute(request: Request, env: Env): Promise<Response> {
   if (request.method === "GET") {
-    // Metadata only — the extracted text never leaves the Worker.
+    // Metadata only — the extracted text never leaves the Worker. The condensed
+    // profile summary is available to the admin via GET /api/resume/summary.
     const resume = await getResumeInfo(env.DB);
     return json({ resume });
   }
@@ -248,6 +250,30 @@ async function handleResumeRoute(request: Request, env: Env): Promise<Response> 
   return json({ resume });
 }
 
+/**
+ * The condensed profile summary (see resume-summary.ts), admin-only. The raw resume
+ * text is never exposed by any route — only this structured summary is.
+ */
+async function handleResumeSummaryRoute(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "GET") {
+    return json({ error: "method not allowed" }, 405);
+  }
+
+  const authFailure = requireAdmin(request, env);
+  if (authFailure) return authFailure;
+
+  const row = await loadResumeSummary(env.DB);
+  if (!row) {
+    return json({ error: "no resume uploaded" }, 404);
+  }
+
+  return json({
+    summary: row.summary,
+    summary_model: row.summary_model,
+    summarized_at: row.summarized_at,
+  });
+}
+
 export async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
   try {
     const path = url.pathname;
@@ -266,6 +292,10 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
       if (authFailure) return authFailure;
       const summary = await runDigest(env);
       return json(summary);
+    }
+
+    if (path === "/api/resume/summary") {
+      return handleResumeSummaryRoute(request, env);
     }
 
     if (path === "/api/resume") {

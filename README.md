@@ -149,9 +149,11 @@ imports is rated against it.
    ~2,500 characters) with `@cf/meta/llama-3.3-70b-instruct-fp8-fast`; that profile is
    what the scorer sends with every batch instead of 12,000 characters of raw resume. If
    the summary step fails, the next scoring run rebuilds it (and falls back to the raw
-   text until then). Neither the text nor the profile is ever logged or returned by the
-   API: `GET /api/resume` gives back only `filename`, `uploaded_at`, `chars` and
-   `summary_chars`.
+   text until then). The raw text is never logged or returned by the API: `GET
+   /api/resume` gives back only `filename`, `uploaded_at`, `chars` and `summary_chars`.
+   The profile itself, however, can be read by the admin — `GET /api/resume/summary`
+   (Bearer token) returns it, and the Manage page's "View profile summary" button on the
+   resume card shows it inline.
 2. After each fetch (cron or **Fetch now**), `scorePendingJobs` picks up every job from
    the last 7 days that has no score yet. Each pending job is first embedded once with
    `@cf/baai/bge-base-en-v1.5` (`jobs.embedding`, 768 floats); a job whose vector is
@@ -218,6 +220,7 @@ title/company/location alone (`INSERT OR IGNORE` never backfills an existing row
 | GET | `/api/sources` | Open | All sources with `enabled`, `config`, `requires_secrets` (names only) and `secrets_present`. |
 | POST | `/api/run` | Bearer token | Run the fetch now (same code path as the cron). Returns `{ fetched, matched, inserted, scored, skipped, failed }` (`scored` = jobs rated against the resume this run). Also available as the **Fetch now** button on the Manage page. |
 | GET | `/api/resume` | Open | Stored resume metadata: `{ resume: { filename, uploaded_at, chars } \| null }`. The extracted text is never returned. |
+| GET | `/api/resume/summary` | Bearer token | The condensed profile summary: `{ summary, summary_model, summarized_at }` (`summary` is `null` if none has been built yet). 404 if no resume is uploaded. The raw resume text is still never served anywhere. |
 | PUT | `/api/resume` | Bearer token | Upload a resume. Body: `multipart/form-data` with a `file` field holding a PDF (≤ 5 MB). Replaces any previous resume. 400 if the file isn't a PDF, is too large, or has no extractable text. Does **not** rescore existing jobs — use `/api/rescore`. |
 | POST | `/api/rescore` | Bearer token | Clear all ratings in the 7-day window (do this after uploading a new resume). Returns `{ cleared, pending }`. Doesn't score anything itself — follow with `/api/score`. |
 | POST | `/api/score?limit=N` | Bearer token | Rate the next `N` (1–40, default 8) unrated jobs. Returns `{ scored, pending }`. 409 if no resume is uploaded. The Manage page calls this in a loop after `/api/rescore` to show live progress. |

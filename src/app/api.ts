@@ -111,6 +111,17 @@ export function getResume(): Promise<{ resume: ResumeInfo | null }> {
   return request<{ resume: ResumeInfo | null }>("/api/resume");
 }
 
+export interface ResumeSummary {
+  summary: string | null;
+  summary_model: string | null;
+  summarized_at: string | null;
+}
+
+/** Admin-only: the condensed profile summary itself (not just its length). */
+export function getResumeSummary(token: string): Promise<ResumeSummary> {
+  return request<ResumeSummary>("/api/resume/summary", { headers: authHeaders(token) });
+}
+
 export function putResume(file: File, token: string): Promise<{ resume: ResumeInfo }> {
   const fd = new FormData();
   fd.append("file", file, file.name);
