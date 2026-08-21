@@ -34,7 +34,7 @@ import {
 
 export const SCORING_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
-/** Jobs per AI call. The prompt now carries a ~2.5k-char profile instead of a 12k resume, so 16 fits comfortably. */
+/** Jobs per AI call. The prompt now carries a <=6k-char profile instead of a 12k resume, so 16 fits comfortably. */
 const BATCH_SIZE = 16;
 const RESUME_MAX_CHARS = 12_000;
 const JOB_DESCRIPTION_MAX_CHARS = 2_500;
