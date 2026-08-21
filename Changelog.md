@@ -5,6 +5,8 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+## 0.4.1 — 2026-08-21
+
 - The admin can now read the resume's condensed profile summary from the Manage page:
   `GET /api/resume/summary` (Bearer token) returns `{ summary, summary_model,
   summarized_at }`, and the resume card's new "View profile summary" button shows it
