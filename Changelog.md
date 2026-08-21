@@ -5,6 +5,8 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+## 0.6.0 — 2026-08-21
+
 - Real login replaces the admin-token prompt. `POST /api/auth/login` (username + password)
   sets an HttpOnly session cookie (30 days; only its SHA-256 is stored), with
   `/api/auth/logout` and `/api/auth/me` alongside. New `users` and `sessions` tables
