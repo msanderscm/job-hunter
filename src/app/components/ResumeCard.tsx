@@ -10,7 +10,7 @@ interface ResumeCardProps {
 }
 
 /** Jobs rated per `/api/score` call — matches the server's batch size, so one step is one AI call. */
-const RESCORE_BATCH = 8;
+const RESCORE_BATCH = 16;
 
 function isPdf(file: File): boolean {
   return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
@@ -131,8 +131,10 @@ export function ResumeCard({ adminToken }: ResumeCardProps) {
     <section className="card">
       <h2>Resume &amp; match scoring</h2>
       <p className="section-note">
-        Each imported job is compared to your resume by Workers AI and rated 1–5. The colored bar
-        along the bottom of each job tile shows the rating (5 = strongest match).
+        Your resume is condensed once into a short profile, and each imported job is compared to
+        that profile by Workers AI and rated 1–5. Re-posted listings that duplicate an
+        already-rated job reuse its rating instead of a new AI call. The colored bar along the
+        bottom of each job tile shows the rating (5 = strongest match).
       </p>
 
       {state === "loading" && <p>Loading…</p>}
@@ -143,6 +145,11 @@ export function ResumeCard({ adminToken }: ResumeCardProps) {
             <>
               Current resume: <strong>{resume.filename}</strong> · uploaded{" "}
               {timeAgo(resume.uploaded_at)} · {resume.chars.toLocaleString()} characters
+              {typeof resume.summary_chars === "number" ? (
+                <> · profile summary ready ({resume.summary_chars.toLocaleString()} chars)</>
+              ) : (
+                <> · profile summary pending (will be built on the next scoring run)</>
+              )}
             </>
           ) : (
             "No resume uploaded yet — jobs aren't being rated."
@@ -196,7 +203,7 @@ export function ResumeCard({ adminToken }: ResumeCardProps) {
       </div>
       <p className="field-helper">
         Clears every rating from the last 7 days, then rates the jobs again against the current
-        resume in batches of 8, showing progress as it goes.
+        resume in batches of 16, showing progress as it goes.
       </p>
     </section>
   );

@@ -35,6 +35,8 @@ export interface JobRow extends Omit<NormalizedJob, "description"> {
   match_reason: string | null;
   scored_at: string | null;
   work_mode: WorkMode | null;
+  /** Id of the near-identical earlier listing this rating was copied from; null when the LLM rated it. */
+  duplicate_of: string | null;
 }
 
 /** Metadata about the stored resume. Deliberately excludes the text itself. */
@@ -42,6 +44,8 @@ export interface ResumeInfo {
   filename: string;
   uploaded_at: string;
   chars: number;
+  /** Length of the condensed profile summary the scorer uses; null until one has been built. */
+  summary_chars: number | null;
 }
 
 export interface Criteria {

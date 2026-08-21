@@ -12,6 +12,7 @@ export interface Job {
   match_reason: string | null;
   scored_at: string | null;
   work_mode: "remote" | "hybrid" | "onsite" | "unknown" | null;
+  duplicate_of: string | null;
 }
 
 export interface Criteria {
@@ -80,6 +81,7 @@ export interface ResumeInfo {
   filename: string;
   uploaded_at: string;
   chars: number;
+  summary_chars: number | null;
 }
 
 export function runDigest(token: string): Promise<RunSummary> {
@@ -128,9 +130,9 @@ export function rescore(token: string): Promise<{ cleared: number; pending: numb
 
 export function scoreNext(
   token: string,
-  limit = 8
-): Promise<{ scored: number; pending: number }> {
-  return request<{ scored: number; pending: number }>(`/api/score?limit=${limit}`, {
+  limit = 16
+): Promise<{ scored: number; pending: number; deduped: number }> {
+  return request<{ scored: number; pending: number; deduped: number }>(`/api/score?limit=${limit}`, {
     method: "POST",
     headers: authHeaders(token),
   });

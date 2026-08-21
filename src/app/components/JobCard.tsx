@@ -74,9 +74,14 @@ export function JobCard({ job }: JobCardProps) {
         {job.match_score !== null && (
           <span
             className="pill pill-match"
-            title={job.match_reason ?? undefined}
+            title={
+              job.duplicate_of
+                ? `Rating copied from an identical earlier listing.${job.match_reason ? ` ${job.match_reason}` : ""}`
+                : job.match_reason ?? undefined
+            }
             aria-label={`match ${job.match_score} out of 5${
-              job.match_reason ? `: ${job.match_reason}` : ""
+              job.duplicate_of ? " (rating copied from an identical earlier listing)" : ""
+            }${job.match_reason ? `: ${job.match_reason}` : ""
             }`}
           >
             match {job.match_score}/5

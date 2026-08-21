@@ -111,7 +111,7 @@ export async function listRecentJobs(db: D1Database, days = 7): Promise<JobRow[]
   const { results } = await db
     .prepare(
       `SELECT id, title, company, company_url, listing_url, location, posted_at, first_seen_at, source,
-              match_score, match_reason, scored_at, work_mode
+              match_score, match_reason, scored_at, work_mode, duplicate_of
        FROM jobs
        WHERE first_seen_at >= datetime('now', ?1)
        ORDER BY posted_at DESC, first_seen_at DESC`
@@ -127,32 +127,52 @@ interface ResumeRow {
   filename: string;
   text: string;
   uploaded_at: string;
+  /** Condensed profile the scorer sends instead of the raw text; null until built (see resume-summary.ts). */
+  summary: string | null;
+  summary_model: string | null;
 }
 
-/** Loads the stored resume, text included. Callers must never return the text over the API. */
+/** Loads the stored resume, text and summary included. Callers must never return either over the API. */
 export async function loadResume(db: D1Database): Promise<ResumeRow | null> {
   const row = await db
-    .prepare("SELECT filename, text, uploaded_at FROM resume WHERE id = 1")
+    .prepare("SELECT filename, text, uploaded_at, summary, summary_model FROM resume WHERE id = 1")
     .first<ResumeRow>();
   return row ?? null;
 }
 
-/** Metadata only — `chars` is computed in SQL so the resume text never leaves D1. */
+/** Metadata only — the lengths are computed in SQL so neither the resume text nor its summary leaves D1. */
 export async function getResumeInfo(db: D1Database): Promise<ResumeInfo | null> {
   const row = await db
-    .prepare("SELECT filename, uploaded_at, length(text) AS chars FROM resume WHERE id = 1")
+    .prepare(
+      "SELECT filename, uploaded_at, length(text) AS chars, length(summary) AS summary_chars FROM resume WHERE id = 1"
+    )
     .first<ResumeInfo>();
   return row ?? null;
 }
 
+/**
+ * Stores a new resume. The summary belongs to the *previous* text, so it is
+ * reset here and rebuilt by the caller (or lazily by the next scoring run).
+ */
 export async function saveResume(db: D1Database, filename: string, text: string): Promise<void> {
   await db
     .prepare(
-      `INSERT INTO resume (id, filename, text, uploaded_at)
-       VALUES (1, ?1, ?2, datetime('now'))
-       ON CONFLICT(id) DO UPDATE SET filename = excluded.filename, text = excluded.text, uploaded_at = excluded.uploaded_at`
+      `INSERT INTO resume (id, filename, text, uploaded_at, summary, summary_model, summarized_at)
+       VALUES (1, ?1, ?2, datetime('now'), NULL, NULL, NULL)
+       ON CONFLICT(id) DO UPDATE SET filename = excluded.filename, text = excluded.text,
+         uploaded_at = excluded.uploaded_at, summary = NULL, summary_model = NULL, summarized_at = NULL`
     )
     .bind(filename, text)
+    .run();
+}
+
+/** Persists the condensed profile produced by src/worker/resume-summary.ts. */
+export async function saveResumeSummary(db: D1Database, summary: string, model: string): Promise<void> {
+  await db
+    .prepare(
+      `UPDATE resume SET summary = ?1, summary_model = ?2, summarized_at = datetime('now') WHERE id = 1`
+    )
+    .bind(summary, model)
     .run();
 }
 
