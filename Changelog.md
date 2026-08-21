@@ -5,6 +5,8 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+## 0.4.2 — 2026-08-21
+
 - Resume profile extraction no longer drops skills: the summariser now extracts into JSON
   arrays (one item per named technology/tool, nothing merged or generalised) and renders
   the profile text from them, the length budget is raised to 6,000 characters, and a
