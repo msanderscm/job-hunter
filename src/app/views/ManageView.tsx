@@ -1,6 +1,7 @@
 import { CriteriaForm } from "../components/CriteriaForm";
 import { SourcesTable } from "../components/SourcesTable";
 import { RunNow } from "../components/RunNow";
+import { ResumeCard } from "../components/ResumeCard";
 import { useAdminToken } from "../hooks/useAdminToken";
 
 export function ManageView() {
@@ -28,6 +29,7 @@ export function ManageView() {
         </div>
       </div>
       <RunNow adminToken={adminToken} />
+      <ResumeCard adminToken={adminToken} />
       <CriteriaForm adminToken={adminToken} />
       <SourcesTable adminToken={adminToken} />
     </div>

@@ -1,7 +1,17 @@
-import type { Criteria, Env } from "./types";
-import { loadCriteria, loadSources, listRecentJobs, updateCriteria, updateSource, getSource } from "./db";
+import type { Criteria, Env, ResumeInfo } from "./types";
+import {
+  loadCriteria,
+  loadSources,
+  listRecentJobs,
+  updateCriteria,
+  updateSource,
+  getSource,
+  getResumeInfo,
+  saveResume,
+} from "./db";
 import { requireAdmin } from "./auth";
 import { runDigest } from "./cron";
+import { clearScores, countPendingJobs, scorePendingJobs } from "./scoring";
 
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
@@ -164,6 +174,68 @@ async function handleSourcesRoute(request: Request, env: Env, sourceId: string):
   });
 }
 
+// --- Resume upload --------------------------------------------------------
+
+/** Hard cap on the uploaded PDF; Workers AI's PDF -> text conversion is the expensive part. */
+const RESUME_MAX_BYTES = 5 * 1024 * 1024;
+/** Hard cap on the stored text (the scorer only ever sends the first 12k chars anyway). */
+const RESUME_MAX_CHARS = 50_000;
+/** Below this, the "PDF" almost certainly has no text layer (a scan/photo). */
+const RESUME_MIN_CHARS = 50;
+
+async function handleResumeRoute(request: Request, env: Env): Promise<Response> {
+  if (request.method === "GET") {
+    // Metadata only — the extracted text never leaves the Worker.
+    const resume = await getResumeInfo(env.DB);
+    return json({ resume });
+  }
+
+  if (request.method !== "PUT") {
+    return json({ error: "method not allowed" }, 405);
+  }
+
+  const authFailure = requireAdmin(request, env);
+  if (authFailure) return authFailure;
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    return json({ error: "body: expected multipart/form-data" }, 400);
+  }
+
+  const file = form.get("file");
+  if (!file || typeof file === "string") {
+    return json({ error: "file: required (multipart/form-data field named 'file')" }, 400);
+  }
+
+  const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+  if (!isPdf) {
+    return json({ error: "file: must be a PDF" }, 400);
+  }
+  if (file.size > RESUME_MAX_BYTES) {
+    return json({ error: "file: must be at most 5 MB" }, 400);
+  }
+
+  const conversion = await env.AI.toMarkdown({ name: file.name, blob: file });
+  if (conversion.format === "error") {
+    // conversion.error can echo document content; keep it out of the response and the log.
+    console.error("[resume] toMarkdown failed");
+    return json({ error: "file: could not extract text from PDF" }, 400);
+  }
+
+  const text = conversion.data.trim();
+  if (text.length < RESUME_MIN_CHARS) {
+    return json({ error: "file: no text could be extracted (is the PDF a scanned image?)" }, 400);
+  }
+
+  await saveResume(env.DB, file.name, text.slice(0, RESUME_MAX_CHARS));
+
+  // Existing scores are left alone; POST /api/rescore re-evaluates on demand.
+  const resume = (await getResumeInfo(env.DB)) as ResumeInfo;
+  return json({ resume });
+}
+
 export async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
   try {
     const path = url.pathname;
@@ -182,6 +254,50 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
       if (authFailure) return authFailure;
       const summary = await runDigest(env);
       return json(summary);
+    }
+
+    if (path === "/api/resume") {
+      return handleResumeRoute(request, env);
+    }
+
+    // Clear every score in the 7-day window so those jobs get re-evaluated
+    // against the current resume. Separate from the upload so a resume change
+    // doesn't silently burn a pile of AI calls, and separate from scoring
+    // itself so the client can drive the (potentially slow) scoring loop and
+    // show progress — see POST /api/score.
+    if (path === "/api/rescore") {
+      if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+      const authFailure = requireAdmin(request, env);
+      if (authFailure) return authFailure;
+      const cleared = await clearScores(env.DB);
+      const pending = await countPendingJobs(env.DB);
+      return json({ cleared, pending });
+    }
+
+    // Rate the next batch of not-yet-scored jobs. Called in a loop by the
+    // Manage page (after POST /api/rescore) so the UI can show live progress;
+    // also usable standalone to pick up any jobs a previous run left pending.
+    if (path === "/api/score") {
+      if (request.method !== "POST") return json({ error: "method not allowed" }, 405);
+      const authFailure = requireAdmin(request, env);
+      if (authFailure) return authFailure;
+
+      const limitParam = url.searchParams.get("limit");
+      let limit = 8;
+      if (limitParam !== null) {
+        limit = Number(limitParam);
+        if (!Number.isInteger(limit) || limit < 1 || limit > 40) {
+          return json({ error: "limit: must be an integer between 1 and 40" }, 400);
+        }
+      }
+
+      const resumeInfo = await getResumeInfo(env.DB);
+      if (!resumeInfo) {
+        return json({ error: "no resume uploaded" }, 409);
+      }
+
+      const { scored, pending } = await scorePendingJobs(env, { limit });
+      return json({ scored, pending });
     }
 
     if (path === "/api/criteria") {

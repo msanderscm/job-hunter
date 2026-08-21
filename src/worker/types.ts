@@ -17,11 +17,31 @@ export interface NormalizedJob {
   location: string | null;
   posted_at: string | null;
   source: string;
+  /** Listing text, plain (HTML stripped) and capped — stored for the AI matcher, never returned by the API. */
+  description: string | null;
 }
 
-/** A jobs-table row as returned by the API (NormalizedJob + when we first stored it). */
-export interface JobRow extends NormalizedJob {
+/** Remote/hybrid/on-site classification judged by the AI scorer; null until evaluated. */
+export type WorkMode = "remote" | "hybrid" | "onsite" | "unknown";
+
+/**
+ * A jobs-table row as returned by the API: NormalizedJob (minus `description`,
+ * which is stored but never served) + when we first stored it + the AI match
+ * rating (see src/worker/scoring.ts; null until the job has been evaluated).
+ */
+export interface JobRow extends Omit<NormalizedJob, "description"> {
   first_seen_at: string;
+  match_score: number | null;
+  match_reason: string | null;
+  scored_at: string | null;
+  work_mode: WorkMode | null;
+}
+
+/** Metadata about the stored resume. Deliberately excludes the text itself. */
+export interface ResumeInfo {
+  filename: string;
+  uploaded_at: string;
+  chars: number;
 }
 
 export interface Criteria {

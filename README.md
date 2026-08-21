@@ -6,6 +6,7 @@ A lightweight Cloudflare Worker that automatically fetches and filters job listi
 - **Cron trigger** runs on schedule (`0 6,10 * * *`, i.e. 06:00 and 10:00 UTC) and fetches jobs from enabled sources in parallel.
 - **Filtering** matches jobs against criteria stored in D1 (keywords, locations, remote OK, max age). Sources that already judge posts themselves (see Hacker News below) are exempt — see `appliesCriteria` in "Adding a new job source".
 - **Deduplication** via `INSERT OR IGNORE` on source-prefixed IDs (`adzuna:12345`, `remoteok:67890`).
+- **Match scoring** rates every newly imported job 1–5 against your uploaded resume with Workers AI, so the jobs list leads with the roles that actually fit (see "Resume & match scoring").
 - **API** exposes jobs and sources; protected write endpoints require `Authorization: Bearer <ADMIN_TOKEN>`.
 - **SPA** (React + Vite) provides two hash routes: jobs list (`#/`) and management (`#/manage`).
 
@@ -62,6 +63,13 @@ No Docker, no external services needed.
    
    # Sources and config
    npx wrangler d1 execute job-digest --local --command "SELECT id, enabled, config FROM sources"
+
+   # Match scores and description coverage per source
+   npx wrangler d1 execute job-digest --local --command \
+     "SELECT source, COUNT(*), SUM(description IS NOT NULL), AVG(match_score) FROM jobs GROUP BY source"
+
+   # Stored resume (metadata only — don't dump the text)
+   npx wrangler d1 execute job-digest --local --command "SELECT filename, uploaded_at, length(text) FROM resume"
    ```
 
 ## Using the management page
@@ -128,6 +136,60 @@ Config keys (all optional):
 
 Requires the `[ai]` binding in `wrangler.toml` (already configured — `binding = "AI"`); no secrets needed. With the defaults, a run costs about 2 Algolia requests plus up to 3 Workers AI requests (60 posts ÷ 20/batch). Workers AI is included in the Workers free tier (10,000 neurons/day); a daily run with the defaults stays well within that. In local dev, the `AI` binding calls the real Workers AI service through your `wrangler login` session (no separate API key needed).
 
+### Resume & match scoring
+
+Upload your resume once (Manage page, or `PUT /api/resume`) and every job the digest
+imports is rated against it.
+
+1. The uploaded PDF (≤ 5 MB) is converted to text by **Workers AI**'s document
+   conversion (`env.AI.toMarkdown`) — one call per upload. The text is stored in the
+   single-row `resume` table, capped at 50,000 characters. It is never logged and never
+   returned by the API: `GET /api/resume` gives back only `filename`, `uploaded_at` and
+   `chars`.
+2. After each fetch (cron or **Fetch now**), `scorePendingJobs` picks up every job from
+   the last 7 days that has no score yet, in batches of 8, and asks
+   `@cf/meta/llama-3.3-70b-instruct-fp8-fast` to rate each one 1–5 with a one-line
+   reason. The prompt carries the first 12,000 characters of the resume plus each job's
+   title, company, location, source and stored description (2,500 characters max).
+3. Scores land in `jobs.match_score` / `match_reason` / `scored_at` and are returned by
+   `/api/jobs`. A job the model failed to rate stays `NULL` and is retried on the next
+   run — a scoring failure never fails the digest.
+4. Changing your resume doesn't rescore anything by itself. The **Re-evaluate all
+   matches** button drives this in two steps so the UI can show live progress:
+   `POST /api/rescore` clears the scores in the 7-day window and returns how many jobs
+   are now pending, then the Manage page calls `POST /api/score?limit=8` in a loop
+   (one call per batch) until nothing is left pending, updating the button's label —
+   `Reevaluating x of y` — after each batch.
+
+The 1–5 scale is what the jobs list colours each tile's border with:
+
+| Score | Meaning | Colour |
+|-------|---------|--------|
+| 1 | Unrelated, or clearly unqualified | neutral (default border) |
+| 2 | Weak match | `#1d4877` |
+| 3 | Plausible partial match | `#fbb021` |
+| 4 | Strong match | `#f68838` |
+| 5 | Excellent — role, seniority, skills and domain all line up | `#ee3e32` |
+
+The same AI pass also classifies each job's remote/hybrid/on-site status (`work_mode`,
+migration 0005) from the listing text — a judgment call, not a keyword search, so
+negated phrasing like "no remote" or "must be on-site" is respected rather than matched
+on the word "remote". The jobs list marks the result in the tile's top-right corner: a
+solid red star means remote, an outline star means hybrid (remote with a recurring
+on-site component), and no star means on-site or unclassified (`unknown`). `work_mode`
+is included on `/api/jobs` alongside the score fields.
+
+Cost: like the Hacker News source, this uses the `[ai]` binding, no secrets. A run that
+scores 80 jobs is 10 Workers AI requests (80 ÷ 8 per batch), plus 1 conversion request
+per resume upload; Workers AI is included in the Workers free tier (10,000 neurons/day)
+and two daily runs stay well inside it. A full re-evaluate is the expensive one (up to
+~15 `/api/score` requests for a full 7-day window), which is why it's a separate,
+explicit action. In local dev the `AI` binding calls the real Workers AI service through
+your `wrangler login` session.
+
+Jobs already stored before their source started capturing descriptions are scored from
+title/company/location alone (`INSERT OR IGNORE` never backfills an existing row).
+
 **Auth:** The UI prompts for `ADMIN_TOKEN` once per session and stores it in memory only. Reload or 401 response will re-prompt.
 
 ## API reference
@@ -138,7 +200,11 @@ Requires the `[ai]` binding in `wrangler.toml` (already configured — `binding 
 | GET | `/api/criteria` | Open | Fetch current matching criteria. |
 | PUT | `/api/criteria` | Bearer token | Replace criteria. Body: `{ required_keywords: [], excluded_keywords: [], locations: [], remote_ok: bool, max_age_days: 1-30 }`. 400 with a message on bad input. |
 | GET | `/api/sources` | Open | All sources with `enabled`, `config`, `requires_secrets` (names only) and `secrets_present`. |
-| POST | `/api/run` | Bearer token | Run the fetch now (same code path as the cron). Returns `{ fetched, matched, inserted, skipped, failed }`. Also available as the **Fetch now** button on the Manage page. |
+| POST | `/api/run` | Bearer token | Run the fetch now (same code path as the cron). Returns `{ fetched, matched, inserted, scored, skipped, failed }` (`scored` = jobs rated against the resume this run). Also available as the **Fetch now** button on the Manage page. |
+| GET | `/api/resume` | Open | Stored resume metadata: `{ resume: { filename, uploaded_at, chars } \| null }`. The extracted text is never returned. |
+| PUT | `/api/resume` | Bearer token | Upload a resume. Body: `multipart/form-data` with a `file` field holding a PDF (≤ 5 MB). Replaces any previous resume. 400 if the file isn't a PDF, is too large, or has no extractable text. Does **not** rescore existing jobs — use `/api/rescore`. |
+| POST | `/api/rescore` | Bearer token | Clear all ratings in the 7-day window (do this after uploading a new resume). Returns `{ cleared, pending }`. Doesn't score anything itself — follow with `/api/score`. |
+| POST | `/api/score?limit=N` | Bearer token | Rate the next `N` (1–40, default 8) unrated jobs. Returns `{ scored, pending }`. 409 if no resume is uploaded. The Manage page calls this in a loop after `/api/rescore` to show live progress. |
 | PUT | `/api/sources/:id` | Bearer token | Update `enabled` and/or `config` of one source. Sources can't be created or deleted via the API. |
 
 ## Deploying to Cloudflare
@@ -226,6 +292,7 @@ src/
     db.ts                   # D1 query helpers
     matching.ts             # Keyword/location filter logic
     util.ts                 # Shared utilities
+    scoring.ts              # Resume-vs-job match scoring (Workers AI)
     sources/
       index.ts              # Source registry
       types.ts              # Normalized job shape
@@ -243,6 +310,7 @@ src/
     utils/                  # Frontend helpers
 migrations/
   0001_init.sql             # Tables: jobs, criteria, sources
+  0004_resume_and_match_scores.sql  # jobs.description/match_score/match_reason/scored_at + resume table
 .github/workflows/
   deploy.yml                # Automated deployment
 wrangler.toml               # Worker config
@@ -266,3 +334,5 @@ vite.config.ts              # Build config
 | Cron ran but no new jobs | Check `wrangler dev` terminal for errors. Criteria may be too strict; clear required keywords to see all matches. |
 | RemoteOK jobs filtered by location | RemoteOK feed is remote-only; enable "Remote OK" toggle or remove location filters. |
 | `hackernews failed: AI binding not configured` | Add the `[ai]` / `binding = "AI"` block to `wrangler.toml` (see the Hacker News section above) and redeploy / restart `wrangler dev`. |
+| Resume upload returns `no text could be extracted` | The PDF has no text layer (a scan or photo). Re-export it from the original document, or run OCR first. |
+| Jobs show no match score | No resume uploaded (`GET /api/resume` returns `null`), or the jobs pre-date the resume — run `POST /api/rescore`. Scores are only computed for jobs first seen in the last 7 days. |

@@ -8,6 +8,10 @@ export interface Job {
   posted_at: string | null;
   first_seen_at: string;
   source: string;
+  match_score: number | null;
+  match_reason: string | null;
+  scored_at: string | null;
+  work_mode: "remote" | "hybrid" | "onsite" | "unknown" | null;
 }
 
 export interface Criteria {
@@ -67,8 +71,15 @@ export interface RunSummary {
   fetched: number;
   matched: number;
   inserted: number;
+  scored: number;
   skipped: string[];
   failed: string[];
+}
+
+export interface ResumeInfo {
+  filename: string;
+  uploaded_at: string;
+  chars: number;
 }
 
 export function runDigest(token: string): Promise<RunSummary> {
@@ -91,6 +102,37 @@ export function putCriteria(
     method: "PUT",
     headers: authHeaders(token),
     body: JSON.stringify(criteria),
+  });
+}
+
+export function getResume(): Promise<{ resume: ResumeInfo | null }> {
+  return request<{ resume: ResumeInfo | null }>("/api/resume");
+}
+
+export function putResume(file: File, token: string): Promise<{ resume: ResumeInfo }> {
+  const fd = new FormData();
+  fd.append("file", file, file.name);
+  return request<{ resume: ResumeInfo }>("/api/resume", {
+    method: "PUT",
+    headers: { Authorization: `Bearer ${token}` },
+    body: fd,
+  });
+}
+
+export function rescore(token: string): Promise<{ cleared: number; pending: number }> {
+  return request<{ cleared: number; pending: number }>("/api/rescore", {
+    method: "POST",
+    headers: authHeaders(token),
+  });
+}
+
+export function scoreNext(
+  token: string,
+  limit = 8
+): Promise<{ scored: number; pending: number }> {
+  return request<{ scored: number; pending: number }>(`/api/score?limit=${limit}`, {
+    method: "POST",
+    headers: authHeaders(token),
   });
 }
 

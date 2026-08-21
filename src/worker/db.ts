@@ -1,4 +1,4 @@
-import type { Criteria, JobRow, NormalizedJob, SourceRow } from "./types";
+import type { Criteria, JobRow, NormalizedJob, ResumeInfo, SourceRow } from "./types";
 
 function safeJsonParse<T>(text: unknown, fallback: T): T {
   if (typeof text !== "string" || text.trim() === "") return fallback;
@@ -85,8 +85,8 @@ export async function insertJobs(db: D1Database, jobs: NormalizedJob[]): Promise
   if (jobs.length === 0) return 0;
 
   const stmt = db.prepare(
-    `INSERT OR IGNORE INTO jobs (id, title, company, company_url, listing_url, location, posted_at, source)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`
+    `INSERT OR IGNORE INTO jobs (id, title, company, company_url, listing_url, location, posted_at, source, description)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
   );
 
   const statements = jobs.map((job) =>
@@ -98,7 +98,8 @@ export async function insertJobs(db: D1Database, jobs: NormalizedJob[]): Promise
       job.listing_url,
       job.location,
       job.posted_at,
-      job.source
+      job.source,
+      job.description ?? null
     )
   );
 
@@ -109,14 +110,50 @@ export async function insertJobs(db: D1Database, jobs: NormalizedJob[]): Promise
 export async function listRecentJobs(db: D1Database, days = 7): Promise<JobRow[]> {
   const { results } = await db
     .prepare(
-      `SELECT id, title, company, company_url, listing_url, location, posted_at, first_seen_at, source
+      `SELECT id, title, company, company_url, listing_url, location, posted_at, first_seen_at, source,
+              match_score, match_reason, scored_at, work_mode
        FROM jobs
        WHERE first_seen_at >= datetime('now', ?1)
-       ORDER BY first_seen_at DESC, posted_at DESC`
+       ORDER BY posted_at DESC, first_seen_at DESC`
     )
     .bind(`-${days} days`)
     .all<JobRow>();
   return results ?? [];
+}
+
+// --- Resume (single row, id = 1; see migrations/0004) ---------------------
+
+interface ResumeRow {
+  filename: string;
+  text: string;
+  uploaded_at: string;
+}
+
+/** Loads the stored resume, text included. Callers must never return the text over the API. */
+export async function loadResume(db: D1Database): Promise<ResumeRow | null> {
+  const row = await db
+    .prepare("SELECT filename, text, uploaded_at FROM resume WHERE id = 1")
+    .first<ResumeRow>();
+  return row ?? null;
+}
+
+/** Metadata only — `chars` is computed in SQL so the resume text never leaves D1. */
+export async function getResumeInfo(db: D1Database): Promise<ResumeInfo | null> {
+  const row = await db
+    .prepare("SELECT filename, uploaded_at, length(text) AS chars FROM resume WHERE id = 1")
+    .first<ResumeInfo>();
+  return row ?? null;
+}
+
+export async function saveResume(db: D1Database, filename: string, text: string): Promise<void> {
+  await db
+    .prepare(
+      `INSERT INTO resume (id, filename, text, uploaded_at)
+       VALUES (1, ?1, ?2, datetime('now'))
+       ON CONFLICT(id) DO UPDATE SET filename = excluded.filename, text = excluded.text, uploaded_at = excluded.uploaded_at`
+    )
+    .bind(filename, text)
+    .run();
 }
 
 export async function updateCriteria(db: D1Database, c: Criteria): Promise<Criteria> {

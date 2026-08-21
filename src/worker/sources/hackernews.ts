@@ -1,6 +1,6 @@
 import type { NormalizedJob } from "../types";
 import type { Fetcher } from "./types";
-import { decodeEntities } from "../util";
+import { capText, decodeEntities } from "../util";
 
 // --- Hacker News "Ask HN: Who is hiring?" source -----------------------
 //
@@ -322,6 +322,8 @@ export const hackernews: Fetcher = async (ctx) => {
           location,
           posted_at: new Date(post.createdAtI * 1000).toISOString(),
           source: "hackernews",
+          // post.text is already HTML-stripped and entity-decoded by cleanPost().
+          description: capText(post.text),
         });
       }
     } catch (err) {
