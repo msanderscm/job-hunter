@@ -5,6 +5,8 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+## 0.7.3 — 2026-08-21
+
 - Fix Adzuna letting unrelated jobs through (0.7.2 regression): required keywords are
   re-checked locally against title+description — Adzuna's `what_or` tokenizes keywords
   like `c#`/`.net` into noise ("c", "net"), matching nursing/operator ads and the like.
