@@ -138,11 +138,13 @@ export const adzuna: Fetcher = async (ctx) => {
     const description =
       typeof raw.description === "string" && raw.description.trim() !== "" ? htmlToText(raw.description) : null;
 
-    // Belt-and-suspenders over the API-side what_exclude param above.
-    if (ctx.criteria.excluded_keywords.length > 0) {
-      const text = `${raw.title} ${description ?? ""}`.toLowerCase();
-      if (includesAny(text, ctx.criteria.excluded_keywords)) continue;
-    }
+    // what_or/what_exclude cannot be trusted alone: Adzuna tokenizes
+    // symbol-heavy keywords ("c#" → "c", ".net" → "net"), which matches
+    // unrelated ads ("net pay", ...). Re-check both keyword criteria
+    // locally against title + description.
+    const text = `${raw.title} ${description ?? ""}`.toLowerCase();
+    if (ctx.criteria.required_keywords.length > 0 && !includesAny(text, ctx.criteria.required_keywords)) continue;
+    if (ctx.criteria.excluded_keywords.length > 0 && includesAny(text, ctx.criteria.excluded_keywords)) continue;
 
     jobs.push({
       id: `adzuna:${raw.id}`,
@@ -160,9 +162,10 @@ export const adzuna: Fetcher = async (ctx) => {
   return jobs;
 };
 
-// required keywords are enforced API-side by what_or, age by max_days_old,
-// excluded keywords by what_exclude plus the in-loop check above, and
-// location by country scoping (config.country) plus adzunaLocationOk — the
-// generic re-filter's title-only keyword check and location substring check
-// wrongly drop valid results (null or city-formatted listing locations).
+// Keyword criteria are hinted API-side (what_or/what_exclude) but enforced
+// by the in-loop title+description check above; age is enforced by
+// max_days_old, and location by country scoping (config.country) plus
+// adzunaLocationOk — the generic re-filter's title-only keyword check and
+// location substring check wrongly drop valid results (null or
+// city-formatted listing locations).
 adzuna.appliesCriteria = true;
