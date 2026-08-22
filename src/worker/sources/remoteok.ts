@@ -1,6 +1,7 @@
 import type { NormalizedJob } from "../types";
 import type { Fetcher } from "./types";
 import { decodeEntities, htmlToText } from "../util";
+import { includesAny } from "../matching";
 
 // --- RemoteOK source -----------------------------------------------------
 //
@@ -415,19 +416,71 @@ async function fetchFromJsonFeed(tags: string[]): Promise<NormalizedJob[]> {
 
 // --- Fetcher ---------------------------------------------------------------
 
+/**
+ * Decides whether a RemoteOK job satisfies the non-geo-scoped parts of
+ * criteria (required/excluded keywords, and location when remote isn't
+ * blanket-acceptable). `text` is the caller's pre-lowercased keyword-check
+ * haystack (title + company + location, matching the generic matcher's
+ * basis); `locationText` is the pre-lowercased location alone. Every
+ * RemoteOK job is remote and config.location already scopes the request
+ * geographically, so when `criteria.remote_ok` is true no further location
+ * check is needed.
+ */
+export function remoteokJobOk(
+  text: string,
+  locationText: string,
+  criteria: { required_keywords: string[]; excluded_keywords: string[]; locations: string[]; remote_ok: boolean }
+): boolean {
+  if (criteria.required_keywords.length > 0 && !includesAny(text, criteria.required_keywords)) return false;
+  if (criteria.excluded_keywords.length > 0 && includesAny(text, criteria.excluded_keywords)) return false;
+
+  if (criteria.remote_ok) return true;
+  if (criteria.locations.length === 0) return true;
+  return includesAny(locationText, criteria.locations);
+}
+
 export const remoteok: Fetcher = async (ctx) => {
   const config = ctx.config as RemoteOkConfig;
   const tags = parseTags(config.tags);
   const location = parseLocationCode(config.location);
   const maxPages = clampInt(config.max_pages, 1, 4, DEFAULT_MAX_PAGES);
 
+  let jobs: NormalizedJob[];
   try {
-    const jobs = await fetchFromHtmlPages(tags, location, maxPages, ctx.criteria.max_age_days);
-    if (jobs !== null) return jobs;
-    console.warn("[remoteok] HTML endpoint unusable, falling back to JSON feed (location filter not applied)");
+    const htmlJobs = await fetchFromHtmlPages(tags, location, maxPages, ctx.criteria.max_age_days);
+    if (htmlJobs !== null) {
+      jobs = htmlJobs;
+    } else {
+      console.warn("[remoteok] HTML endpoint unusable, falling back to JSON feed (location filter not applied)");
+      jobs = await fetchFromJsonFeed(tags);
+    }
   } catch (err) {
     console.warn("[remoteok] HTML endpoint unusable, falling back to JSON feed (location filter not applied)", err);
+    jobs = await fetchFromJsonFeed(tags);
   }
 
-  return fetchFromJsonFeed(tags);
+  // The page-boundary cutoff in fetchFromHtmlPages can let a few stale rows
+  // through, and the JSON fallback applies no age filter at all; the generic
+  // re-filter that used to catch those no longer runs for this source.
+  const maxAgeDays = ctx.criteria.max_age_days;
+  const cutoff =
+    typeof maxAgeDays === "number" && Number.isFinite(maxAgeDays) && maxAgeDays > 0
+      ? Date.now() - maxAgeDays * 86_400_000
+      : null;
+
+  return jobs.filter((job) => {
+    if (cutoff !== null && job.posted_at) {
+      const posted = new Date(job.posted_at).getTime();
+      if (!Number.isNaN(posted) && posted < cutoff) return false;
+    }
+    const text = `${job.title} ${job.company} ${job.location ?? ""}`.toLowerCase();
+    const locationText = (job.location ?? "").toLowerCase();
+    return remoteokJobOk(text, locationText, ctx.criteria);
+  });
 };
+
+// Every RemoteOK job is remote, and geo eligibility is already scoped
+// API-side by config.location, so the generic matcher's job.source ===
+// "remoteok" special case (now removed) is replaced by applying the
+// remaining criteria (keywords, location-when-not-remote-ok) here directly.
+remoteok.appliesCriteria = true;

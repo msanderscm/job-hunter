@@ -1,6 +1,7 @@
 import type { NormalizedJob } from "../types";
 import type { Fetcher } from "./types";
 import { decodeEntities, htmlToText } from "../util";
+import { includesAny } from "../matching";
 
 interface TavilyResult {
   title?: string;
@@ -81,6 +82,33 @@ export function normalizeListingUrl(url: string): string {
   return parsed.href;
 }
 
+/**
+ * Builds the Tavily search query from the base query phrase plus the
+ * criteria that Tavily results otherwise carry no structured fields for:
+ * required keywords become a `(kw1 OR kw2) ` prefix, and locations (plus the
+ * literal "remote" when remote_ok is set) become an ` in (loc1 OR loc2)`
+ * suffix. Either part is omitted when there's nothing to add.
+ */
+export function buildTavilyQuery(
+  requiredKeywords: string[],
+  locations: string[],
+  remoteOk: boolean,
+  baseQuery: string,
+): string {
+  const keywords = requiredKeywords.map((k) => k.trim()).filter((k) => k !== "");
+  const locationTerms = locations.map((l) => l.trim()).filter((l) => l !== "");
+  if (remoteOk) locationTerms.push("remote");
+
+  let query = baseQuery;
+  if (locationTerms.length > 0) {
+    query = `${query} in (${locationTerms.join(" OR ")})`;
+  }
+  if (keywords.length > 0) {
+    query = `(${keywords.join(" OR ")}) ${query}`;
+  }
+  return query;
+}
+
 export const tavily: Fetcher = async (ctx) => {
   const config = ctx.config as {
     query?: unknown;
@@ -105,10 +133,7 @@ export const tavily: Fetcher = async (ctx) => {
 
   const minScore = typeof config.min_score === "number" && Number.isFinite(config.min_score) ? config.min_score : 0;
 
-  const query =
-    ctx.criteria.required_keywords.length > 0
-      ? `${ctx.criteria.required_keywords.join(" OR ")} ${baseQuery}`
-      : baseQuery;
+  const query = buildTavilyQuery(ctx.criteria.required_keywords, ctx.criteria.locations, ctx.criteria.remote_ok, baseQuery);
 
   const body: Record<string, unknown> = {
     query,
@@ -152,6 +177,11 @@ export const tavily: Fetcher = async (ctx) => {
     if (typeof raw.title !== "string" || raw.title.trim() === "") continue;
     if (typeof raw.score === "number" && raw.score < minScore) continue;
 
+    if (ctx.criteria.excluded_keywords.length > 0) {
+      const text = `${raw.title} ${raw.content ?? ""}`.toLowerCase();
+      if (includesAny(text, ctx.criteria.excluded_keywords)) continue;
+    }
+
     const url = normalizeListingUrl(raw.url);
     const id = `tavily:${url}`;
     // Results arrive score-descending; keep the first (highest-scoring) of
@@ -174,3 +204,12 @@ export const tavily: Fetcher = async (ctx) => {
 
   return jobs;
 };
+
+// Tavily results carry no structured location field and only short snippets,
+// so cron's generic keyword/location re-filter (matching.ts) would reject
+// almost everything — a non-empty criteria.locations rejects every job with
+// location === null, for instance. The search query above already encodes
+// the required keywords, locations, and remote_ok, and excluded keywords are
+// checked above, so this source judges criteria itself; cron must skip its
+// re-filter for it (see hackernews.ts for the same pattern).
+tavily.appliesCriteria = true;

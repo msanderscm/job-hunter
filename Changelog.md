@@ -5,6 +5,18 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+## 0.7.2 — 2026-08-21
+
+- Adzuna and RemoteOK now honor location criteria correctly — Adzuna results are no
+  longer wrongly dropped when locations name the configured country (e.g. "United
+  States" with city-formatted or missing listing locations), excluded keywords are
+  passed to Adzuna's `what_exclude`, and RemoteOK applies keyword/location criteria
+  itself instead of bypassing the location check via a special case in the matcher.
+- Tavily query now carries the full criteria (required keywords, locations, remote) and
+  the source applies criteria itself, so results are no longer wrongly rejected by the
+  structured-field re-filter (which dropped all Tavily jobs when locations were
+  configured); excluded keywords are checked against title+snippet.
+
 ## 0.7.1 — 2026-08-21
 
 - Fix Tavily source: `include_domains` now uses registrable root domains (`greenhouse.io`,
