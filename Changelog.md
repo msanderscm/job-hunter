@@ -5,6 +5,8 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+## 0.7.2 — 2026-08-21
+
 - Adzuna and RemoteOK now honor location criteria correctly — Adzuna results are no
   longer wrongly dropped when locations name the configured country (e.g. "United
   States" with city-formatted or missing listing locations), excluded keywords are
