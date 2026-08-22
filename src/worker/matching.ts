@@ -25,7 +25,11 @@ export function matchesCriteria(job: NormalizedJob, criteria: Criteria, now: Dat
   }
 
   const locationText = (job.location ?? "").toLowerCase();
-  const isRemote = locationText.includes("remote") || job.source === "remoteok";
+  // No source special-casing here: sources whose jobs are inherently remote
+  // or otherwise need bespoke location handling (adzuna, remoteok, tavily,
+  // hackernews) set `appliesCriteria = true` and apply criteria themselves
+  // (see cron.ts), bypassing this function entirely.
+  const isRemote = locationText.includes("remote");
 
   let locationOk: boolean;
   if (criteria.remote_ok && isRemote) {
