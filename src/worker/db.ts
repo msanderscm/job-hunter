@@ -121,15 +121,18 @@ const JOB_ROW_COLUMNS = `id, title, company, company_url, listing_url, location,
               match_score, match_reason, scored_at, work_mode, duplicate_of, status, status_changed_at`;
 
 /**
- * Jobs from the last `days` days, plus any 'saved' job regardless of age —
- * a save is a deliberate keep, so it must never silently age out of the list.
+ * Jobs from the last `days` days, plus any 'saved' or 'deleted' job
+ * regardless of age — a save is a deliberate keep, so it must never
+ * silently age out of the list, and a delete is a deliberate triage
+ * decision the Deleted tab must keep showing (the row also has to stay
+ * in the DB so INSERT OR IGNORE won't re-list the job on a later fetch).
  */
 export async function listRecentJobs(db: D1Database, days = 7): Promise<JobRow[]> {
   const { results } = await db
     .prepare(
       `SELECT ${JOB_ROW_COLUMNS}
        FROM jobs
-       WHERE (first_seen_at >= datetime('now', ?1) OR status = 'saved')
+       WHERE (first_seen_at >= datetime('now', ?1) OR status IN ('saved', 'deleted'))
        ORDER BY posted_at DESC, first_seen_at DESC`
     )
     .bind(`-${days} days`)
