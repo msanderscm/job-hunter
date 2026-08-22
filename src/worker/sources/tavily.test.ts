@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { companyFromListingUrl, normalizeListingUrl } from "./tavily";
+import { companyFromListingUrl, normalizeListingUrl, buildTavilyQuery } from "./tavily";
 
 describe("companyFromListingUrl", () => {
   it("extracts the company slug from a Greenhouse boards URL", () => {
@@ -84,5 +84,39 @@ describe("normalizeListingUrl", () => {
 
   it("collapses a path that is just /apply to the bare host", () => {
     expect(normalizeListingUrl("https://jobs.lever.co/apply")).toBe("https://jobs.lever.co/");
+  });
+});
+
+describe("buildTavilyQuery", () => {
+  it("includes keywords, locations, and remote", () => {
+    expect(buildTavilyQuery(["developer", "azure", "c#"], ["United States"], true, "job opening hiring")).toBe(
+      "(developer OR azure OR c#) job opening hiring in (United States OR remote)",
+    );
+  });
+
+  it("includes keywords only", () => {
+    expect(buildTavilyQuery(["developer", "azure"], [], false, "job opening hiring")).toBe(
+      "(developer OR azure) job opening hiring",
+    );
+  });
+
+  it("includes locations only", () => {
+    expect(buildTavilyQuery([], ["United States", "Canada"], false, "job opening hiring")).toBe(
+      "job opening hiring in (United States OR Canada)",
+    );
+  });
+
+  it("includes remote_ok only", () => {
+    expect(buildTavilyQuery([], [], true, "job opening hiring")).toBe("job opening hiring in (remote)");
+  });
+
+  it("returns baseQuery verbatim when everything is empty", () => {
+    expect(buildTavilyQuery([], [], false, "job opening hiring")).toBe("job opening hiring");
+  });
+
+  it("filters out empty and whitespace-only entries", () => {
+    expect(buildTavilyQuery(["developer", "", "  "], ["United States", "", "  "], false, "job opening hiring")).toBe(
+      "(developer) job opening hiring in (United States)",
+    );
   });
 });

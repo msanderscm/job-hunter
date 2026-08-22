@@ -5,6 +5,11 @@ line per significant feature, fix, or behaviour change.
 
 ## Unreleased
 
+- Tavily query now carries the full criteria (required keywords, locations, remote) and
+  the source applies criteria itself, so results are no longer wrongly rejected by the
+  structured-field re-filter (which dropped all Tavily jobs when locations were
+  configured); excluded keywords are checked against title+snippet.
+
 ## 0.7.1 — 2026-08-21
 
 - Fix Tavily source: `include_domains` now uses registrable root domains (`greenhouse.io`,

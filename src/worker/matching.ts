@@ -2,7 +2,7 @@ import type { Criteria, NormalizedJob } from "./types";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
-function includesAny(haystack: string, needles: string[]): boolean {
+export function includesAny(haystack: string, needles: string[]): boolean {
   return needles.some((needle) => haystack.includes(needle.toLowerCase()));
 }
 
